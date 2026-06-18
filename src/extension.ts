@@ -1,4 +1,4 @@
-// Node Pilot — the JavaScript / Node.js / web inner-loop console for the GitHub
+// Cockpit.js — the JavaScript / Node.js / web inner-loop console for the GitHub
 // Copilot app. Wires the canvas declaration to a shared Controller and a
 // per-instance loopback HTTP server. See plan / AGENTS.md for the design.
 import {
@@ -22,7 +22,7 @@ async function sendToChat(prompt: string): Promise<void> {
     await sessionRef?.send({ prompt });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await sessionRef?.log?.(`Node Pilot: failed to message chat: ${message}`, {
+    await sessionRef?.log?.(`Cockpit.js: failed to message chat: ${message}`, {
       level: "error",
     });
   }
@@ -36,8 +36,8 @@ const servers = new Map<string, Awaited<ReturnType<typeof startServer>>>();
 const session = await joinSession({
   canvases: [
     createCanvas({
-      id: "node-app",
-      displayName: "Node Pilot",
+      id: "cockpit",
+      displayName: "Cockpit.js",
       description:
         "Build, lint, type-check, test and run JavaScript / Node.js / web apps, preview the dev server, and update dependencies without breaking the app.",
       actions: buildActions(controller),
@@ -52,7 +52,7 @@ const session = await joinSession({
         const status = d?.hasProject
           ? `${d.framework.label} · ${d.pm}`
           : "No Node.js project detected";
-        return { title: "Node Pilot", url: entry.url, status };
+        return { title: "Cockpit.js", url: entry.url, status };
       },
       onClose: async (ctx: CanvasCloseContext) => {
         const entry = servers.get(ctx.instanceId);
@@ -66,4 +66,4 @@ const session = await joinSession({
 });
 
 sessionRef = session;
-await session.log("Node Pilot ready.");
+await session.log("Cockpit.js ready.");

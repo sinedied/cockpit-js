@@ -1,4 +1,4 @@
-// Shared domain types used across the Node Pilot backend modules.
+// Shared domain types used across the Cockpit.js backend modules.
 import type { ChildProcess } from "node:child_process";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";

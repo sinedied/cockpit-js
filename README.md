@@ -1,14 +1,14 @@
-# Node Pilot
+# Cockpit.js
 
 **The JavaScript / Node.js / web inner-loop console for the GitHub Copilot app.**
 
-Node Pilot is a [Copilot **canvas** extension](https://docs.github.com/en/copilot/how-tos/github-copilot-app/working-with-canvas-extensions)
+Cockpit.js is a [Copilot **canvas** extension](https://docs.github.com/en/copilot/how-tos/github-copilot-app/working-with-canvas-extensions)
 that puts your project's whole inner loop in the Copilot side panel: run scripts,
 build, lint, format, type-check and test; start the dev server and preview the app;
 and keep dependencies current **without breaking the build**. Any failure can be
 handed straight to the agent with one click — **Fix with Copilot**.
 
-It is zero-config: Node Pilot auto-detects your package manager, scripts, framework,
+It is zero-config: Cockpit.js auto-detects your package manager, scripts, framework,
 test runner, linter, formatter and TypeScript, and degrades gracefully when a
 capability is missing.
 
@@ -51,18 +51,18 @@ Missing a capability simply hides the matching lane — there is nothing to conf
 ### Try it on this repo (dog-food)
 
 This repository dog-foods itself through a tiny wrapper at
-`.github/extensions/node-pilot/extension.mjs`. Open the repo in the GitHub Copilot
-app and the **Node Pilot** canvas becomes available — open it from the canvas
-catalog or ask Copilot to "open Node Pilot".
+`.github/extensions/cockpit/extension.mjs`. Open the repo in the GitHub Copilot
+app and the **Cockpit.js** canvas becomes available — open it from the canvas
+catalog or ask Copilot to "open Cockpit.js".
 
 ```sh
-git clone https://github.com/sinedied/node-pilot
+git clone https://github.com/sinedied/cockpit
 # open the folder in the GitHub Copilot app
 ```
 
 ### Use it in another project
 
-Copy the extension into the target project under `.github/extensions/node-pilot/`
+Copy the extension into the target project under `.github/extensions/cockpit/`
 (its root `extension.mjs`, `src/`, `public/` and `copilot-extension.json`), or
 install it from the repository with the Copilot app's "install extension" flow.
 The canvas then drives that project's inner loop.
@@ -74,10 +74,11 @@ Node ≥ 22.18 (native type-stripping) and the UI is plain HTML/CSS/JS.
 
 ### In the canvas
 
-Open the **Node Pilot** canvas in the side panel. The status bar shows the detected
-setup; the tabs give you **Console** (scripts + build/lint/format/type-check),
-**Tests**, **Dev** (server + preview) and **Dependencies** (outdated / audit / safe
-update). Every failing run offers **Fix with Copilot**.
+Open the **Cockpit.js** canvas in the side panel. The status bar shows the detected
+setup; the tabs give you **Info** (project overview + refresh / theme), **Console**
+(scripts + build/lint/format/type-check), **Tests**, **Dev** (server + preview) and
+**Dependencies** (outdated / audit / safe update). Every failing run offers **Fix with
+Copilot**.
 
 ### From the agent
 
@@ -102,7 +103,7 @@ and the lockfile, applies the updates, runs the **verify suite** (type-check + b
 
 ## How it works
 
-Node Pilot follows the canvas-extension model: a per-instance loopback HTTP server
+Cockpit.js follows the canvas-extension model: a per-instance loopback HTTP server
 (bound to `127.0.0.1` on an ephemeral port) serves the UI and exposes JSON action
 endpoints plus a Server-Sent-Events stream for live console / test / status updates.
 A single in-process `Controller` is the source of truth shared by both the UI and the
@@ -135,7 +136,7 @@ The toolbar only shows the lanes a project actually supports, the Tests/Dev tabs
 hide when there is nothing to run there, and every `package.json` script is
 available from the **Scripts** menu (check one to pin it to the toolbar). The pinned
 scripts and the theme preference are persisted per project in
-`~/.node-pilot/settings.json` — not in your repository. (iframe `localStorage` is
+`~/.cockpit/settings.json` — not in your repository. (iframe `localStorage` is
 unreliable here because each canvas open gets a fresh loopback port, which changes
 the page origin.)
 
@@ -175,7 +176,7 @@ After editing the extension, reload it in the Copilot app (the runtime rediscove
   its own in-app theme to canvas extensions, so OS appearance is the best automatic
   signal available.
 - **Tab icon**: the canvas API exposes only a title/status, so a custom tab icon
-  isn't supported. Node Pilot ships an SVG favicon (`public/icon.svg`) as a best-effort
+  isn't supported. Cockpit.js ships an SVG favicon (`public/icon.svg`) as a best-effort
   fallback in case the host surfaces it.
 
 ## Roadmap

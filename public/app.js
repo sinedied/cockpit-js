@@ -1,4 +1,4 @@
-// Node Pilot UI controller. Talks to the per-instance loopback server over a
+// Cockpit.js UI controller. Talks to the per-instance loopback server over a
 // small JSON API and an SSE event stream, and keeps the DOM in sync with the
 // shared controller state.
 

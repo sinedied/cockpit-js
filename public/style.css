@@ -79,8 +79,15 @@
   --console-fg: #e6edf3;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+  /* The canvas webview and the native Copilot app contend over the mouse cursor,
+     which makes interactive elements flicker between the default and pointer
+     cursors on hover. Forcing one uniform cursor everywhere removes the two
+     states the host flips between, so there is nothing left to flicker. */
+  cursor: default !important;
 }
 
 html,
@@ -115,23 +122,14 @@ body {
   flex: none;
 }
 
-/* ---- Header ---- */
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
-}
-
+/* ---- Info tab ---- */
 .project {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
+  align-self: flex-start;
   color: var(--dim);
-  flex: 1;
   min-width: 0;
 }
 
@@ -159,7 +157,6 @@ body {
   color: var(--text);
   border-radius: var(--radius);
   padding: 5px 11px;
-  cursor: pointer;
   font-weight: 500;
   font-size: 12px;
   white-space: nowrap;
@@ -205,7 +202,6 @@ body {
 
 .lane-btn:disabled {
   opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .icon-btn,
@@ -218,7 +214,6 @@ body {
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: var(--radius);
-  cursor: pointer;
   padding: 5px 8px;
   font-size: 12px;
 }
@@ -305,7 +300,6 @@ body {
   gap: 8px;
   padding: 5px 8px;
   border-radius: var(--radius);
-  cursor: pointer;
 }
 
 .menu-item:hover {
@@ -314,14 +308,12 @@ body {
 
 .menu-item input {
   accent-color: var(--accent-emphasis);
-  cursor: pointer;
 }
 
 .menu-item .menu-name {
   flex: 1;
   font-family: var(--mono);
   font-size: 12px;
-  cursor: pointer;
 }
 
 .menu-item .run-hint {
@@ -354,7 +346,6 @@ body {
   border-left: 1px solid var(--border);
   color: var(--dim);
   padding: 5px 12px;
-  cursor: pointer;
   font-size: 12px;
   font-weight: 500;
 }
@@ -383,7 +374,6 @@ body {
   border-bottom: 2px solid transparent;
   color: var(--dim);
   padding: 9px 12px;
-  cursor: pointer;
   font-weight: 500;
 }
 
@@ -483,7 +473,6 @@ main {
   color: var(--purple);
   border-radius: var(--radius);
   padding: 5px 10px;
-  cursor: pointer;
   font-weight: 600;
   font-size: 12px;
 }

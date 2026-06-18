@@ -1,5 +1,5 @@
 // Per-project UI settings (pinned scripts + theme preference), persisted to
-// ~/.node-pilot/settings.json. We persist server-side rather than in the iframe's
+// ~/.cockpit/settings.json. We persist server-side rather than in the iframe's
 // localStorage because the loopback server gets a fresh ephemeral port on every
 // canvas open, which changes the page origin and wipes localStorage.
 import os from "node:os";
@@ -7,7 +7,7 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { Detection, Settings, SettingsPatch } from "./types.ts";
 
-const DIR = path.join(os.homedir(), ".node-pilot");
+const DIR = path.join(os.homedir(), ".cockpit");
 const FILE = path.join(DIR, "settings.json");
 
 const DEFAULTS: Settings = { pinnedScripts: null, theme: "auto" };

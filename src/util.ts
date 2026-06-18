@@ -1,4 +1,4 @@
-// Small shared helpers used across Node Pilot modules.
+// Small shared helpers used across Cockpit.js modules.
 import { readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";

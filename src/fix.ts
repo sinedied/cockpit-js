@@ -1,4 +1,4 @@
-// Build context-rich prompts that Node Pilot hands back to the agent so it can
+// Build context-rich prompts that Cockpit.js hands back to the agent so it can
 // diagnose and fix a failure. Output is trimmed to keep prompts focused.
 import type { TestReport, UpdateFailure } from "./types.ts";
 
@@ -36,7 +36,7 @@ export function buildFixPrompt({
 }: FixPromptInput): string {
   const what = LANE_LABELS[lane] || lane;
   const parts = [
-    `The Node Pilot **${what}** step failed in this project. Please diagnose the root cause and fix it.`,
+    `The Cockpit.js **${what}** step failed in this project. Please diagnose the root cause and fix it.`,
     "",
     `- Command: \`${command || label || "(unknown)"}\``,
   ];
@@ -90,7 +90,7 @@ export function buildDepsFixPrompt({ failures, verifyStep, output }: DepsFixProm
     .map((f) => `- ${f.name}${f.from ? ` ${f.from} → ${f.to}` : ""}`)
     .join("\n");
   const parts = [
-    "A dependency update broke the project's verification suite. Node Pilot rolled the breaking package(s) back to keep the app working. Please make the codebase compatible with the newer version(s), then we can update safely.",
+    "A dependency update broke the project's verification suite. Cockpit.js rolled the breaking package(s) back to keep the app working. Please make the codebase compatible with the newer version(s), then we can update safely.",
     "",
     "Package(s) that could not be updated:",
     list || "(see output)",

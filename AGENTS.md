@@ -4,7 +4,7 @@ Context recap for AI agents working on this repo. Keep it short and current.
 
 ## What this is
 
-**Node Pilot** — a GitHub Copilot **canvas** extension that runs the JS/Node/web
+**Cockpit.js** — a GitHub Copilot **canvas** extension that runs the JS/Node/web
 inner loop (scripts, build, lint, format, type-check, test, dev server, dependency
 updates with auto-rollback) in the Copilot app side panel. Java equivalent for
 inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
@@ -15,7 +15,7 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
 - `extension.mjs` (root) — thin entry **named `extension.mjs`** because the Copilot
   runtime only discovers that filename. It just `import "./src/extension.ts"`.
 - `src/extension.ts` — the **only** module that imports `@github/copilot-sdk`. Declares
-  the canvas (`id: "node-app"`, displayName "Node Pilot"), wires a shared `Controller`,
+  the canvas (`id: "cockpit"`, displayName "Cockpit.js"), wires a shared `Controller`,
   one loopback HTTP server per open canvas instance, and `sendToChat`.
 - `src/` — TypeScript, SDK-free and unit-testable with plain Node:
   - `types.ts` (shared domain types), `detect.ts` (pm/scripts/framework/TS/runners),
@@ -25,12 +25,12 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
     `fix.ts` (prompt builders), `settings.ts` (per-project pinned scripts + theme).
 - `types/copilot-sdk.d.ts` — ambient shim for `@github/copilot-sdk/extension` so `tsc`
   resolves it in CI (the real package only exists inside the Copilot app).
-- `public/` — vanilla HTML/CSS/JS UI (Console / Tests / Dev / Dependencies tabs),
+- `public/` — vanilla HTML/CSS/JS UI (Info / Console / Tests / Dev / Dependencies tabs),
   GitHub Primer light/dark theming + inline Octicon sprite (MIT, bundled, no network).
   `public/app.js` stays JS, type-checked via `tsconfig.client.json` (`checkJs`).
 - `test/` — Vitest specs (`core.test.ts`, `deps.test.ts`). `scripts/smoke.mjs`
   dynamically imports every SDK-free `src/*.ts` to prove native type-stripping loads.
-- `.github/extensions/node-pilot/extension.mjs` — dog-food wrapper that imports the
+- `.github/extensions/cockpit/extension.mjs` — dog-food wrapper that imports the
   root `extension.mjs` so the repo runs the extension against itself.
 - `.github/workflows/ci.yml` — CI (format:check → build → smoke → test) on Node 22.18 & 24.
 
@@ -57,7 +57,14 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
 - **No theme/icon inheritance**: the host injects no theme CSS vars/classes and the
   canvas API has no icon field. Theme follows OS `prefers-color-scheme` + a manual
   Auto/Light/Dark toggle; tab icon is a best-effort favicon (`public/icon.svg`).
-- **Settings persist server-side** in `~/.node-pilot/settings.json` (keyed by project
+- **Don't fight the native cursor**: the UI is a webview hosted by the native Copilot
+  app, which owns the mouse cursor. With per-element cursors (e.g. `cursor: pointer` on
+  buttons) the cursor flickers between default and pointer on hover — the webview and
+  the native host contend over which to show. `pointer-events: none` does NOT fix it.
+  The working resolution is to force **one uniform cursor everywhere**: a global
+  `*, *::before, *::after { cursor: default !important; }` in `public/style.css`, with
+  no per-element `cursor:` rules. One state means nothing for the host to flip between.
+- **Settings persist server-side** in `~/.cockpit/settings.json` (keyed by project
   path), NOT in iframe `localStorage` — each canvas open gets a fresh loopback port,
   changing the origin and wiping `localStorage`. See `src/settings.ts`.
 - **Lane availability**: each `resolve*()` in `lanes.ts` reports `{unavailable}`;
@@ -77,7 +84,7 @@ The agent dev loop for any change:
      type-stripping (catches non-erasable syntax / bad `.ts` imports that `tsc` won't).
    - `npm test` — Vitest (`test/**`). `npm run check` runs the whole sequence at once.
 3. **Reload + verify in the canvas**: reload the extension in the Copilot app
-   (rediscovers `.github/extensions/`), then `open_canvas` (canvasId `node-app`) and
+   (rediscovers `.github/extensions/`), then `open_canvas` (canvasId `cockpit`) and
    exercise the affected flow via the UI or `invoke_canvas_action`.
 4. CI (`.github/workflows/ci.yml`) runs the same checks on Node **22.18** (the
    supported floor) and **24**.

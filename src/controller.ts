@@ -205,7 +205,7 @@ export class Controller {
       return { ok: false, reason: spec.reason };
     }
     if (spec.outputFile === undefined && spec.parser === "jest") {
-      tmpDir = await mkdtemp(path.join(os.tmpdir(), "node-pilot-"));
+      tmpDir = await mkdtemp(path.join(os.tmpdir(), "cockpit-"));
       outputFile = path.join(tmpDir, "results.json");
     }
     const resolved = outputFile ? resolveTest(d, { ...opts, outputFile }) : spec;

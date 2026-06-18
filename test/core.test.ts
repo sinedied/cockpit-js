@@ -1,4 +1,4 @@
-// Core functional + unit tests for Node Pilot (no SDK, no network needed).
+// Core functional + unit tests for Cockpit.js (no SDK, no network needed).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import os from "node:os";

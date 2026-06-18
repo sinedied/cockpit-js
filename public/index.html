@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Node Pilot</title>
+    <title>Cockpit.js</title>
     <link rel="icon" href="/icon.svg" />
     <link rel="stylesheet" href="/style.css" />
   </head>
@@ -138,16 +138,6 @@
       </symbol>
     </svg>
 
-    <header class="topbar">
-      <div id="project" class="project"></div>
-      <button id="theme-toggle" class="icon-btn" title="Theme: auto" aria-label="Toggle theme">
-        <svg class="oi"><use href="#oct-device-desktop" /></svg>
-      </button>
-      <button id="refresh" class="icon-btn" title="Re-run project detection" aria-label="Refresh">
-        <svg class="oi"><use href="#oct-sync" /></svg>
-      </button>
-    </header>
-
     <div id="notice" class="notice hidden"></div>
 
     <nav class="toolbar" id="toolbar">
@@ -177,15 +167,36 @@
     </nav>
 
     <div class="tabs" id="tabs">
-      <button data-tab="console" class="active">Console</button>
+      <button data-tab="info" class="active">Info</button>
+      <button data-tab="console">Console</button>
       <button data-tab="tests" id="tabbtn-tests">Tests</button>
       <button data-tab="dev" id="tabbtn-dev">Dev</button>
       <button data-tab="deps">Dependencies</button>
     </div>
 
     <main>
+      <!-- Info -->
+      <section id="tab-info" class="tab-panel active">
+        <div class="panel-head">
+          <span id="info-label" class="mono dim">Project</span>
+          <span class="grow"></span>
+          <button
+            id="refresh"
+            class="icon-btn"
+            title="Re-run project detection"
+            aria-label="Refresh"
+          >
+            <svg class="oi"><use href="#oct-sync" /></svg>
+          </button>
+          <button id="theme-toggle" class="icon-btn" title="Theme: auto" aria-label="Toggle theme">
+            <svg class="oi"><use href="#oct-device-desktop" /></svg>
+          </button>
+        </div>
+        <div id="project" class="project"></div>
+      </section>
+
       <!-- Console -->
-      <section id="tab-console" class="tab-panel active">
+      <section id="tab-console" class="tab-panel">
         <div class="panel-head">
           <span id="console-label" class="mono dim">Run a task to see output here.</span>
           <span class="grow"></span>

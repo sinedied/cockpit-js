@@ -1,8 +1,8 @@
-# Node Pilot Plan
+# Cockpit.js Plan
 
 ## Vision
 
-**Node Pilot** is the JavaScript / Node.js / web inner-loop console for the GitHub
+**Cockpit.js** is the JavaScript / Node.js / web inner-loop console for the GitHub
 Copilot app: a [canvas extension](https://docs.github.com/en/copilot/how-tos/github-copilot-app/working-with-canvas-extensions)
 that lets you run your project's scripts, build, lint, type-check, test and run the
 dev server, preview the running web app, and keep dependencies current **without
@@ -35,9 +35,9 @@ capability is missing.
 Mirrors the canvas-extension model (loopback HTTP server + SSE + agent actions):
 
 - **Standalone, publishable repo** that dog-foods itself, like coffilot. A tiny
-  `.github/extensions/node-pilot/extension.mjs` wrapper re-exports the root
-  `extension.mjs` so opening this repo in the Copilot app loads Node Pilot directly.
-- `joinSession({ canvases: [createCanvas({ id: "node-app", ... })] })`.
+  `.github/extensions/cockpit/extension.mjs` wrapper re-exports the root
+  `extension.mjs` so opening this repo in the Copilot app loads Cockpit.js directly.
+- `joinSession({ canvases: [createCanvas({ id: "cockpit", ... })] })`.
 - `open()` boots one loopback HTTP server per canvas instance (ephemeral port,
   `127.0.0.1`), serving the UI from `public/` plus JSON action endpoints and an
   **SSE** endpoint that streams live console / test / status events. Returns
@@ -162,7 +162,7 @@ A capability summary + active PM is shown in the status bar.
 ## Repo layout
 
 ```
-node-pilot/
+cockpit/
   extension.mjs                     # wiring: canvas declaration + server bootstrap
   src/
     detect.mjs                      # PM / scripts / framework / TS / runner / workspaces
@@ -175,8 +175,8 @@ node-pilot/
     fix.mjs                         # "Fix with Copilot" prompt builders
   public/
     index.html  app.js  style.css   # themed vanilla UI
-  .github/extensions/node-pilot/extension.mjs   # dog-food wrapper -> root extension.mjs
-  copilot-extension.json            # { "name": "node-pilot", "version": 1 }
+  .github/extensions/cockpit/extension.mjs   # dog-food wrapper -> root extension.mjs
+  copilot-extension.json            # { "name": "cockpit", "version": 1 }
   package.json                      # metadata + check/format scripts + prettier
   README.md  PLAN.md  LICENSE  .gitignore  prettier.config.cjs
 ```
