@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-export async function fileExists(p) {
+export async function fileExists(p: string): Promise<boolean> {
   try {
     await stat(p);
     return true;
@@ -12,7 +12,7 @@ export async function fileExists(p) {
   }
 }
 
-export function existsSyncSafe(p) {
+export function existsSyncSafe(p: string): boolean {
   try {
     return existsSync(p);
   } catch {
@@ -20,16 +20,16 @@ export function existsSyncSafe(p) {
   }
 }
 
-export async function readJson(p) {
+export async function readJson<T = unknown>(p: string): Promise<T | null> {
   try {
     const raw = await readFile(p, "utf8");
-    return JSON.parse(raw);
+    return JSON.parse(raw) as T;
   } catch {
     return null;
   }
 }
 
-export async function readText(p) {
+export async function readText(p: string): Promise<string | null> {
   try {
     return await readFile(p, "utf8");
   } catch {
@@ -38,7 +38,7 @@ export async function readText(p) {
 }
 
 // Find the first existing file from a list of candidate names in `cwd`.
-export function firstExisting(cwd, names) {
+export function firstExisting(cwd: string, names: string[]): string | null {
   for (const name of names) {
     if (existsSyncSafe(path.join(cwd, name))) return name;
   }
@@ -46,7 +46,7 @@ export function firstExisting(cwd, names) {
 }
 
 // Cap an array to its last `max` items (used for in-memory log ring buffers).
-export function pushCapped(arr, item, max = 5000) {
+export function pushCapped<T>(arr: T[], item: T, max = 5000): T[] {
   arr.push(item);
   if (arr.length > max) arr.splice(0, arr.length - max);
   return arr;
@@ -57,7 +57,7 @@ export function pushCapped(arr, item, max = 5000) {
 // log lines (e.g. npm's command echo) don't get swallowed into the URL.
 const URL_RE =
   /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d+)?(?:\/[^\s"'<>)\]}]*)?)/i;
-export function extractUrl(text) {
+export function extractUrl(text: string): string | null {
   const m = URL_RE.exec(text || "");
   if (!m) return null;
   // Trim a trailing punctuation character that is unlikely to be part of a URL.
@@ -67,10 +67,10 @@ export function extractUrl(text) {
 }
 
 // Detect "port already in use" style messages across tools.
-export function isPortInUse(text) {
+export function isPortInUse(text: string): boolean {
   return /EADDRINUSE|address already in use|port \d+ is (?:already )?in use/i.test(text || "");
 }
 
-export function nowIso() {
+export function nowIso(): string {
   return new Date().toISOString();
 }

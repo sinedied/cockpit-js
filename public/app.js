@@ -544,7 +544,8 @@ $("#scripts-toggle").addEventListener("click", (e) => {
   else closeScriptsMenu();
 });
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".menu-wrap")) closeScriptsMenu();
+  const target = /** @type {Element | null} */ (e.target);
+  if (!target || !target.closest(".menu-wrap")) closeScriptsMenu();
 });
 
 $("#console-fix").addEventListener("click", (e) =>

@@ -19,12 +19,25 @@
     "yarn",
     "bun"
   ],
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
-    "check": "node --check extension.mjs && for f in src/*.mjs; do node --check \"$f\" || exit 1; done",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "typecheck": "npm run build",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check": "npm run format:check && npm run build && npm run smoke && npm run test"
   },
   "devDependencies": {
-    "prettier": "^3.4.2"
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0"
   }
 }

@@ -1,11 +1,22 @@
 // Package-manager abstraction. Maps high-level operations to the argv for the
 // detected package manager (npm / pnpm / yarn / bun) so the rest of the code
 // stays PM-agnostic.
+import type { PackageManager } from "./types.ts";
 
-export const PMS = ["npm", "pnpm", "yarn", "bun"];
+export const PMS: PackageManager[] = ["npm", "pnpm", "yarn", "bun"];
+
+export interface OutdatedCommand {
+  argv: string[];
+  format: "npm-json" | "pnpm-json" | "yarn-json" | "text";
+}
+
+export interface AuditCommand {
+  argv: string[];
+  format: "npm-json" | "yarn-json";
+}
 
 // Build argv to run a named package.json script.
-export function runScript(pm, name, extraArgs = []) {
+export function runScript(pm: PackageManager, name: string, extraArgs: string[] = []): string[] {
   switch (pm) {
     case "pnpm":
       return ["pnpm", "run", name, ...extraArgs];
@@ -20,7 +31,7 @@ export function runScript(pm, name, extraArgs = []) {
 }
 
 // Build argv to execute a locally installed binary (e.g. vite, tsc, eslint).
-export function exec(pm, binArgs) {
+export function exec(pm: PackageManager, binArgs: string[]): string[] {
   switch (pm) {
     case "pnpm":
       return ["pnpm", "exec", ...binArgs];
@@ -35,7 +46,7 @@ export function exec(pm, binArgs) {
 }
 
 // Build argv to install all dependencies from the manifest + lockfile.
-export function install(pm) {
+export function install(pm: PackageManager): string[] {
   switch (pm) {
     case "pnpm":
       return ["pnpm", "install"];
@@ -51,7 +62,7 @@ export function install(pm) {
 
 // Build argv to add/upgrade one or more packages at explicit versions.
 // `specs` is an array like ["react@18.3.1", "vite@5.4.0"].
-export function add(pm, specs, { dev = false } = {}) {
+export function add(pm: PackageManager, specs: string[], { dev = false } = {}): string[] {
   switch (pm) {
     case "pnpm":
       return ["pnpm", "add", ...(dev ? ["-D"] : []), ...specs];
@@ -66,7 +77,7 @@ export function add(pm, specs, { dev = false } = {}) {
 }
 
 // Build argv to list outdated dependencies as JSON (where supported).
-export function outdated(pm) {
+export function outdated(pm: PackageManager): OutdatedCommand {
   switch (pm) {
     case "pnpm":
       return { argv: ["pnpm", "outdated", "--format", "json"], format: "pnpm-json" };
@@ -83,7 +94,7 @@ export function outdated(pm) {
 }
 
 // Build argv to run a security audit as JSON (where supported).
-export function audit(pm) {
+export function audit(pm: PackageManager): AuditCommand {
   switch (pm) {
     case "pnpm":
       return { argv: ["pnpm", "audit", "--json"], format: "npm-json" };
@@ -97,7 +108,7 @@ export function audit(pm) {
   }
 }
 
-export function auditFix(pm) {
+export function auditFix(pm: PackageManager): string[] {
   switch (pm) {
     case "pnpm":
       return ["pnpm", "audit", "--fix"];
@@ -109,7 +120,7 @@ export function auditFix(pm) {
   }
 }
 
-export function lockfileFor(pm) {
+export function lockfileFor(pm: PackageManager): string {
   switch (pm) {
     case "pnpm":
       return "pnpm-lock.yaml";
@@ -123,6 +134,6 @@ export function lockfileFor(pm) {
   }
 }
 
-export function supportsOutdatedJson(pm) {
+export function supportsOutdatedJson(pm: PackageManager): boolean {
   return pm === "npm" || pm === "pnpm";
 }

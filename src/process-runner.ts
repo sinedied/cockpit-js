@@ -1,11 +1,27 @@
 // Cross-platform process spawning with streamed output. Long-lived processes
 // (the dev server) and one-shot lanes (build/lint/test) both go through here.
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import type { ProcessHandle, RunResult } from "./types.ts";
+
+interface SpawnOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface RunOptions extends SpawnOptions {
+  onData?: (text: string) => void;
+  onStart?: (child: ChildProcess) => void;
+}
+
+interface StartOptions extends SpawnOptions {
+  onData?: (text: string) => void;
+}
 
 // Spawn argv cross-platform. On Windows, package-manager binaries are `.cmd`
 // shims that must be run through the shell, so we route through cmd.exe with
 // verbatim arguments; on POSIX we exec directly (no shell injection surface).
-function spawnArgv(argv, { cwd, env }) {
+function spawnArgv(argv: string[], { cwd, env }: SpawnOptions): ChildProcess {
   const [command, ...args] = argv;
   if (process.platform === "win32") {
     const line = [command, ...args]
@@ -22,22 +38,26 @@ function spawnArgv(argv, { cwd, env }) {
 
 // Run a command to completion, streaming each output chunk via onData.
 // Returns { code, signal, output } where output is the full combined text.
-export function run(argv, { cwd, env = process.env, onData, onStart } = {}) {
+export function run(
+  argv: string[],
+  { cwd, env = process.env, onData, onStart }: RunOptions = {},
+): Promise<RunResult> {
   return new Promise((resolve) => {
-    let child;
+    let child: ChildProcess;
     try {
       child = spawnArgv(argv, { cwd, env });
     } catch (err) {
-      const text = `Failed to launch ${argv.join(" ")}: ${err.message}\n`;
+      const message = err instanceof Error ? err.message : String(err);
+      const text = `Failed to launch ${argv.join(" ")}: ${message}\n`;
       onData?.(text);
-      resolve({ code: -1, signal: null, output: text, error: err.message });
+      resolve({ code: -1, signal: null, output: text, error: message });
       return;
     }
 
     let output = "";
     onStart?.(child);
 
-    const handle = (buf) => {
+    const handle = (buf: Buffer) => {
       const text = buf.toString();
       output += text;
       onData?.(text);
@@ -57,13 +77,16 @@ export function run(argv, { cwd, env = process.env, onData, onStart } = {}) {
 }
 
 // Start a long-lived process. Returns the child plus a stop() helper.
-export function start(argv, { cwd, env = process.env, onData } = {}) {
+export function start(
+  argv: string[],
+  { cwd, env = process.env, onData }: StartOptions = {},
+): ProcessHandle {
   const child = spawnArgv(argv, { cwd, env });
-  const handle = (buf) => onData?.(buf.toString());
+  const handle = (buf: Buffer) => onData?.(buf.toString());
   child.stdout?.on("data", handle);
   child.stderr?.on("data", handle);
 
-  function stop() {
+  function stop(): Promise<void> {
     return new Promise((resolve) => {
       if (child.exitCode !== null || child.signalCode) {
         resolve();

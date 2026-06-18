@@ -1,23 +1,24 @@
 // Resolve each lane to a concrete command for the detected project. Prefer the
 // project's own package.json scripts; otherwise fall back to running the locally
 // installed tool with sensible defaults.
-import { runScript, exec } from "./pm.mjs";
+import { runScript, exec } from "./pm.ts";
+import type { LaneAvailability, LaneResult, ProjectDetection } from "./types.ts";
 
-function hasScript(d, name) {
+function hasScript(d: ProjectDetection, name: string): boolean {
   return Boolean(d.scripts && d.scripts[name]);
 }
 
 // Pick the first matching script name from a list of candidates.
-function pickScript(d, candidates) {
+function pickScript(d: ProjectDetection, candidates: string[]): string | null {
   for (const c of candidates) if (hasScript(d, c)) return c;
   return null;
 }
 
-export function resolveBuild(d) {
+export function resolveBuild(d: ProjectDetection): LaneResult {
   const script = pickScript(d, ["build"]);
   if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
   const fw = d.framework.id;
-  const defaults = {
+  const defaults: Record<string, string[]> = {
     next: ["next", "build"],
     nuxt: ["nuxt", "build"],
     astro: ["astro", "build"],
@@ -33,7 +34,7 @@ export function resolveBuild(d) {
   return { unavailable: true, reason: "No build script or known framework detected." };
 }
 
-export function resolveLint(d, { fix = false } = {}) {
+export function resolveLint(d: ProjectDetection, { fix = false } = {}): LaneResult {
   const script = pickScript(d, ["lint"]);
   if (script && !fix) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
   if (d.linter === "eslint")
@@ -55,7 +56,7 @@ export function resolveLint(d, { fix = false } = {}) {
   return { unavailable: true, reason: "No linter (eslint / biome / oxlint) detected." };
 }
 
-export function resolveFormat(d, { check = false } = {}) {
+export function resolveFormat(d: ProjectDetection, { check = false } = {}): LaneResult {
   const script = pickScript(d, check ? ["format:check", "format"] : ["format"]);
   if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
   if (d.formatter === "prettier")
@@ -71,7 +72,7 @@ export function resolveFormat(d, { check = false } = {}) {
   return { unavailable: true, reason: "No formatter (prettier / biome) detected." };
 }
 
-export function resolveTypecheck(d) {
+export function resolveTypecheck(d: ProjectDetection): LaneResult {
   const script = pickScript(d, ["typecheck", "type-check", "tsc", "check-types"]);
   if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
   if (d.typescript) return { label: "tsc --noEmit", argv: exec(d.pm, ["tsc", "--noEmit"]) };
@@ -81,11 +82,11 @@ export function resolveTypecheck(d) {
   };
 }
 
-export function resolveDev(d) {
+export function resolveDev(d: ProjectDetection): LaneResult {
   const script = pickScript(d, ["dev", "start", "serve"]);
   if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
   const fw = d.framework.id;
-  const defaults = {
+  const defaults: Record<string, string[]> = {
     next: ["next", "dev"],
     nuxt: ["nuxt", "dev"],
     astro: ["astro", "dev"],
@@ -100,9 +101,17 @@ export function resolveDev(d) {
   return { unavailable: true, reason: "No dev / start script or known framework detected." };
 }
 
+export interface TestOptions {
+  pattern?: string;
+  outputFile?: string;
+}
+
 // Returns { label, argv, parser, outputFile? }. `parser` selects the report
-// parser in test-report.mjs.
-export function resolveTest(d, { pattern, outputFile } = {}) {
+// parser in test-report.ts.
+export function resolveTest(
+  d: ProjectDetection,
+  { pattern, outputFile }: TestOptions = {},
+): LaneResult {
   const pat = pattern ? [pattern] : [];
   switch (d.testRunner) {
     case "vitest":
@@ -151,7 +160,11 @@ export function resolveTest(d, { pattern, outputFile } = {}) {
   }
 }
 
-export function resolveLane(d, laneId, opts = {}) {
+export function resolveLane(
+  d: ProjectDetection,
+  laneId: string,
+  opts: { fix?: boolean; check?: boolean } = {},
+): LaneResult {
   switch (laneId) {
     case "build":
       return resolveBuild(d);
@@ -168,7 +181,7 @@ export function resolveLane(d, laneId, opts = {}) {
 
 // Which lanes can actually run for this project — used by the UI to hide
 // buttons/tabs that don't apply.
-export function laneAvailability(d) {
+export function laneAvailability(d: ProjectDetection | null): LaneAvailability {
   if (!d || !d.hasProject) {
     return {
       build: false,

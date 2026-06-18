@@ -12,19 +12,27 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
 
 ## Architecture
 
-- `extension.mjs` — the **only** file that imports `@github/copilot-sdk`. Declares the
-  canvas (`id: "node-app"`, displayName "Node Pilot"), wires a shared `Controller`,
+- `extension.mjs` (root) — thin entry **named `extension.mjs`** because the Copilot
+  runtime only discovers that filename. It just `import "./src/extension.ts"`.
+- `src/extension.ts` — the **only** module that imports `@github/copilot-sdk`. Declares
+  the canvas (`id: "node-app"`, displayName "Node Pilot"), wires a shared `Controller`,
   one loopback HTTP server per open canvas instance, and `sendToChat`.
-- `src/` — all SDK-free and unit-testable with plain Node:
-  - `detect.mjs` (pm/scripts/framework/TS/runners), `pm.mjs`, `process-runner.mjs`
-    (cross-platform spawn), `lanes.mjs`, `test-report.mjs`, `deps.mjs` (safe-update
-    loop + rollback), `controller.mjs` (central state + SSE events), `server.mjs`
-    (http + SSE + `/api/*`), `actions.mjs` (agent actions), `fix.mjs` (prompt builders),
-    `settings.mjs` (per-project pinned scripts + theme).
+- `src/` — TypeScript, SDK-free and unit-testable with plain Node:
+  - `types.ts` (shared domain types), `detect.ts` (pm/scripts/framework/TS/runners),
+    `pm.ts`, `process-runner.ts` (cross-platform spawn), `lanes.ts`, `test-report.ts`,
+    `deps.ts` (safe-update loop + rollback), `controller.ts` (central state + SSE
+    events), `server.ts` (http + SSE + `/api/*`), `actions.ts` (agent actions),
+    `fix.ts` (prompt builders), `settings.ts` (per-project pinned scripts + theme).
+- `types/copilot-sdk.d.ts` — ambient shim for `@github/copilot-sdk/extension` so `tsc`
+  resolves it in CI (the real package only exists inside the Copilot app).
 - `public/` — vanilla HTML/CSS/JS UI (Console / Tests / Dev / Dependencies tabs),
   GitHub Primer light/dark theming + inline Octicon sprite (MIT, bundled, no network).
+  `public/app.js` stays JS, type-checked via `tsconfig.client.json` (`checkJs`).
+- `test/` — Vitest specs (`core.test.ts`, `deps.test.ts`). `scripts/smoke.mjs`
+  dynamically imports every SDK-free `src/*.ts` to prove native type-stripping loads.
 - `.github/extensions/node-pilot/extension.mjs` — dog-food wrapper that imports the
   root `extension.mjs` so the repo runs the extension against itself.
+- `.github/workflows/ci.yml` — CI (format:check → build → smoke → test) on Node 22.18 & 24.
 
 ## Critical gotchas
 
@@ -35,29 +43,51 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   project.
 - **No `console.log`** in the extension — stdout is reserved for JSON-RPC. Use
   `session.log()` (host-side) or `controller.broadcast`/SSE for UI.
-- SDK import only resolves inside the Copilot runtime; keep `src/` SDK-free.
+- SDK import only resolves inside the Copilot runtime; keep `src/` SDK-free (only
+  `src/extension.ts` imports the SDK shim).
 - Canvas action names must NOT start with `canvas.`.
+- **TypeScript, no build step**: source is `.ts`, run directly via Node's native type
+  stripping (Node ≥ 22.18). This imposes two rules, enforced by `tsconfig.json`
+  (`erasableSyntaxOnly` + `verbatimModuleSyntax`):
+  - **Explicit `.ts` import extensions** in relative imports (e.g.
+    `import { Controller } from "./controller.ts"`).
+  - **Erasable-only syntax** — no `enum`, runtime `namespace`, parameter properties or
+    decorators; use `import type` / `export type` for type-only references.
+  - `dist/` stays gitignored: nothing is emitted; `tsc` runs `--noEmit` as a checker.
 - **No theme/icon inheritance**: the host injects no theme CSS vars/classes and the
   canvas API has no icon field. Theme follows OS `prefers-color-scheme` + a manual
   Auto/Light/Dark toggle; tab icon is a best-effort favicon (`public/icon.svg`).
 - **Settings persist server-side** in `~/.node-pilot/settings.json` (keyed by project
   path), NOT in iframe `localStorage` — each canvas open gets a fresh loopback port,
-  changing the origin and wiping `localStorage`. See `src/settings.mjs`.
-- **Lane availability**: each `resolve*()` in `lanes.mjs` reports `{unavailable}`;
+  changing the origin and wiping `localStorage`. See `src/settings.ts`.
+- **Lane availability**: each `resolve*()` in `lanes.ts` reports `{unavailable}`;
   `laneAvailability(d)` aggregates it onto `detection.availability` so the UI hides
   lanes/tabs that don't apply.
 
 ## Workflow
 
-- Apply changes, then **reload** in the Copilot app (rediscovers `.github/extensions/`)
-  to pick them up. Verify with `open_canvas` (canvasId `node-app`) and
-  `invoke_canvas_action`.
-- Checks: `npm run check` (syntax-checks every module), `npm run format` /
-  `npm run format:check` (Prettier).
-- Regression harnesses live in the session state dir (`files/test-core.mjs`,
-  `files/test-deps.mjs`), run with plain `node` — keep them green.
+The agent dev loop for any change:
+
+1. **Make the change** in `src/*.ts` / `public/app.js` / docs.
+2. **Run the required checks** until all green:
+   - `npm run format` (or `npm run format:check` to verify) — Prettier.
+   - `npm run build` — `tsc` type-check of both `tsconfig.json` (Node) and
+     `tsconfig.client.json` (the `checkJs` browser UI). Also aliased as `npm run typecheck`.
+   - `npm run smoke` — loads every SDK-free `src/*.ts` through Node's native
+     type-stripping (catches non-erasable syntax / bad `.ts` imports that `tsc` won't).
+   - `npm test` — Vitest (`test/**`). `npm run check` runs the whole sequence at once.
+3. **Reload + verify in the canvas**: reload the extension in the Copilot app
+   (rediscovers `.github/extensions/`), then `open_canvas` (canvasId `node-app`) and
+   exercise the affected flow via the UI or `invoke_canvas_action`.
+4. CI (`.github/workflows/ci.yml`) runs the same checks on Node **22.18** (the
+   supported floor) and **24**.
+
+> **Never `git commit` or `git push` without explicit human review and validation
+> first.** Leave changes staged/working and hand them to the maintainer; they review,
+> validate in the app, and commit. Conventional Commits when they do.
 
 ## Conventions
 
-- Conventional Commits.
-- ESM (`type: module`), Prettier-formatted, MIT licensed, author Yohan Lasorsa.
+- Conventional Commits (applied by the human at commit time).
+- TypeScript, ESM (`type: module`), Node ≥ 22.18, Prettier-formatted, MIT licensed,
+  author Yohan Lasorsa.

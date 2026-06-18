@@ -67,7 +67,8 @@ Copy the extension into the target project under `.github/extensions/node-pilot/
 install it from the repository with the Copilot app's "install extension" flow.
 The canvas then drives that project's inner loop.
 
-No build step and no runtime dependencies — the UI is plain HTML/CSS/JS.
+No bundler and no runtime dependencies: the TypeScript backend runs directly on
+Node ≥ 22.18 (native type-stripping) and the UI is plain HTML/CSS/JS.
 
 ## Usage
 
@@ -108,20 +109,26 @@ A single in-process `Controller` is the source of truth shared by both the UI an
 agent actions, so they always drive the exact same operations.
 
 ```
-extension.mjs            canvas declaration + per-instance server wiring
+extension.mjs            thin entry (required filename) → imports src/extension.ts
 src/
-  detect.mjs             package manager / scripts / framework / TS / runners
-  pm.mjs                 package-manager command abstraction
-  process-runner.mjs     cross-platform spawn (one-shot + long-lived)
-  lanes.mjs              build / lint / format / type-check / dev / test commands
-  test-report.mjs        parse Vitest / Jest / node:test / Bun output
-  deps.mjs               outdated / audit + safe-update loop + rollback
-  controller.mjs         central state + orchestration (+ SSE events)
-  server.mjs             http + SSE + static + /api endpoints
-  actions.mjs            agent-callable canvas actions
-  fix.mjs                "Fix with Copilot" prompt builders
-  settings.mjs           per-project pinned-scripts + theme persistence
+  extension.ts           canvas declaration + per-instance server wiring (SDK)
+  types.ts               shared domain types
+  detect.ts              package manager / scripts / framework / TS / runners
+  pm.ts                  package-manager command abstraction
+  process-runner.ts      cross-platform spawn (one-shot + long-lived)
+  lanes.ts               build / lint / format / type-check / dev / test commands
+  test-report.ts         parse Vitest / Jest / node:test / Bun output
+  deps.ts                outdated / audit + safe-update loop + rollback
+  controller.ts          central state + orchestration (+ SSE events)
+  server.ts              http + SSE + static + /api endpoints
+  actions.ts             agent-callable canvas actions
+  fix.ts                 "Fix with Copilot" prompt builders
+  settings.ts            per-project pinned-scripts + theme persistence
+types/copilot-sdk.d.ts   ambient SDK shim (so tsc resolves the SDK in CI)
 public/                  index.html · app.js · style.css (Primer-styled vanilla UI)
+test/                    Vitest specs · scripts/smoke.mjs (type-stripping load)
+tsconfig*.json           Node + browser (checkJs) type-check configs
+.github/workflows/ci.yml CI: format → build → smoke → test on Node 22.18 & 24
 ```
 
 The toolbar only shows the lanes a project actually supports, the Tests/Dev tabs
@@ -132,16 +139,24 @@ scripts and the theme preference are persisted per project in
 unreliable here because each canvas open gets a fresh loopback port, which changes
 the page origin.)
 
-Everything in `src/` is SDK-free and independently runnable with plain Node; only
-`extension.mjs` imports the Copilot SDK.
+The backend is **TypeScript with no build step** — Node ≥ 22.18 runs the `.ts`
+sources directly via native type-stripping, so there is nothing to compile or bundle
+at load. Everything in `src/` is SDK-free and independently runnable with plain Node;
+only `src/extension.ts` imports the Copilot SDK.
 
 ## Development
 
+Requires **Node ≥ 22.18** (for native TypeScript type-stripping — the backend runs
+`.ts` directly with no build step).
+
 ```sh
 npm install
-npm run check          # syntax-check every module
-npm run format         # format with Prettier
-npm run format:check   # verify formatting
+npm run check          # format:check + build + smoke + test (everything CI runs)
+
+npm run build          # tsc type-check (Node + browser configs); alias: npm run typecheck
+npm run smoke          # load every SDK-free module via native type-stripping
+npm test               # Vitest unit tests (npm run test:watch / npm run coverage)
+npm run format         # format with Prettier (npm run format:check to verify)
 ```
 
 After editing the extension, reload it in the Copilot app (the runtime rediscovers

@@ -2,9 +2,21 @@
 // formatter, TypeScript, workspaces and Node engine — all inferred from the
 // project files, with no questions asked.
 import path from "node:path";
-import { readJson, readText, firstExisting, existsSyncSafe } from "./util.mjs";
+import { readJson, readText, firstExisting, existsSyncSafe } from "./util.ts";
+import type { Detection, Framework, PackageManager } from "./types.ts";
 
-function detectPm(cwd, pkg) {
+interface PackageJson {
+  name?: string;
+  version?: string;
+  packageManager?: string;
+  scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  workspaces?: unknown;
+  engines?: Record<string, string>;
+}
+
+function detectPm(cwd: string, pkg: PackageJson): PackageManager {
   if (existsSyncSafe(path.join(cwd, "bun.lockb")) || existsSyncSafe(path.join(cwd, "bun.lock")))
     return "bun";
   if (existsSyncSafe(path.join(cwd, "pnpm-lock.yaml"))) return "pnpm";
@@ -13,13 +25,13 @@ function detectPm(cwd, pkg) {
   const field = pkg?.packageManager;
   if (typeof field === "string") {
     const name = field.split("@")[0].trim();
-    if (["npm", "pnpm", "yarn", "bun"].includes(name)) return name;
+    if (["npm", "pnpm", "yarn", "bun"].includes(name)) return name as PackageManager;
   }
   return "npm";
 }
 
-function detectFramework(cwd, deps) {
-  const has = (n) => Boolean(deps[n]);
+function detectFramework(cwd: string, deps: Record<string, string>): Framework {
+  const has = (n: string) => Boolean(deps[n]);
   if (has("next")) return { id: "next", label: "Next.js" };
   if (has("nuxt") || has("nuxt3")) return { id: "nuxt", label: "Nuxt" };
   if (has("astro")) return { id: "astro", label: "Astro" };
@@ -34,7 +46,11 @@ function detectFramework(cwd, deps) {
   return { id: "node", label: "Node.js" };
 }
 
-function detectTestRunner(cwd, deps, scripts) {
+function detectTestRunner(
+  cwd: string,
+  deps: Record<string, string>,
+  scripts: Record<string, string>,
+): string | null {
   if (
     deps.vitest ||
     firstExisting(cwd, ["vitest.config.ts", "vitest.config.js", "vitest.config.mjs"])
@@ -58,7 +74,7 @@ function detectTestRunner(cwd, deps, scripts) {
   return null;
 }
 
-function detectLinter(cwd, deps) {
+function detectLinter(cwd: string, deps: Record<string, string>): string | null {
   if (deps["@biomejs/biome"] || firstExisting(cwd, ["biome.json", "biome.jsonc"])) return "biome";
   if (deps.oxlint) return "oxlint";
   if (
@@ -80,7 +96,7 @@ function detectLinter(cwd, deps) {
   return null;
 }
 
-function detectFormatter(cwd, deps) {
+function detectFormatter(cwd: string, deps: Record<string, string>): string | null {
   if (
     deps.prettier ||
     firstExisting(cwd, [
@@ -98,8 +114,8 @@ function detectFormatter(cwd, deps) {
   return null;
 }
 
-async function detectWorkspaces(cwd, pkg) {
-  const reasons = [];
+async function detectWorkspaces(cwd: string, pkg: PackageJson): Promise<string[] | null> {
+  const reasons: string[] = [];
   if (pkg?.workspaces) reasons.push("workspaces field");
   if (existsSyncSafe(path.join(cwd, "pnpm-workspace.yaml"))) reasons.push("pnpm-workspace.yaml");
   if (existsSyncSafe(path.join(cwd, "turbo.json"))) reasons.push("Turborepo");
@@ -108,8 +124,8 @@ async function detectWorkspaces(cwd, pkg) {
   return reasons.length ? reasons : null;
 }
 
-export async function detect(cwd) {
-  const pkg = await readJson(path.join(cwd, "package.json"));
+export async function detect(cwd: string): Promise<Detection> {
+  const pkg = await readJson<PackageJson>(path.join(cwd, "package.json"));
   if (!pkg) {
     return {
       hasProject: false,

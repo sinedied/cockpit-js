@@ -1,12 +1,13 @@
 // Build context-rich prompts that Node Pilot hands back to the agent so it can
 // diagnose and fix a failure. Output is trimmed to keep prompts focused.
+import type { TestReport, UpdateFailure } from "./types.ts";
 
-function tail(text, lines = 120) {
+function tail(text: string | undefined, lines = 120): string {
   const arr = (text || "").split(/\r?\n/);
   return arr.slice(-lines).join("\n").trim();
 }
 
-const LANE_LABELS = {
+const LANE_LABELS: Record<string, string> = {
   build: "build",
   lint: "lint",
   format: "format",
@@ -16,7 +17,23 @@ const LANE_LABELS = {
   deps: "dependency update",
 };
 
-export function buildFixPrompt({ lane, label, command, exitCode, output, extra }) {
+export interface FixPromptInput {
+  lane: string;
+  label?: string;
+  command?: string | null;
+  exitCode?: number;
+  output?: string;
+  extra?: string;
+}
+
+export function buildFixPrompt({
+  lane,
+  label,
+  command,
+  exitCode,
+  output,
+  extra,
+}: FixPromptInput): string {
   const what = LANE_LABELS[lane] || lane;
   const parts = [
     `The Node Pilot **${what}** step failed in this project. Please diagnose the root cause and fix it.`,
@@ -32,8 +49,14 @@ export function buildFixPrompt({ lane, label, command, exitCode, output, extra }
   return parts.join("\n");
 }
 
-export function buildTestFixPrompt({ command, report, output }) {
-  const failed = [];
+export interface TestFixPromptInput {
+  command: string;
+  report?: TestReport | null;
+  output?: string;
+}
+
+export function buildTestFixPrompt({ command, report, output }: TestFixPromptInput): string {
+  const failed: string[] = [];
   for (const s of report?.suites || []) {
     for (const t of s.tests || []) {
       if (t.status === "failed")
@@ -56,7 +79,13 @@ export function buildTestFixPrompt({ command, report, output }) {
   return parts.join("\n");
 }
 
-export function buildDepsFixPrompt({ failures, verifyStep, output }) {
+export interface DepsFixPromptInput {
+  failures?: UpdateFailure[];
+  verifyStep?: string;
+  output?: string;
+}
+
+export function buildDepsFixPrompt({ failures, verifyStep, output }: DepsFixPromptInput): string {
   const list = (failures || [])
     .map((f) => `- ${f.name}${f.from ? ` ${f.from} → ${f.to}` : ""}`)
     .join("\n");

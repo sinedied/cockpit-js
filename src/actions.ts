@@ -1,7 +1,9 @@
 // Agent-callable canvas actions. Each delegates to the shared controller so the
 // agent and the UI drive exactly the same operations.
+import type { Controller } from "./controller.ts";
+import type { ActionContext, ActionDefinition } from "./types.ts";
 
-function statusSummary(controller) {
+function statusSummary(controller: Controller): Record<string, unknown> {
   const d = controller.detection;
   if (!d?.hasProject) return { hasProject: false, reason: d?.reason };
   const lanes = Object.fromEntries(
@@ -30,8 +32,8 @@ function statusSummary(controller) {
   };
 }
 
-export function buildActions(controller) {
-  const actions = [
+export function buildActions(controller: Controller): ActionDefinition[] {
+  const actions: ActionDefinition[] = [
     {
       name: "get_status",
       description:
@@ -51,7 +53,7 @@ export function buildActions(controller) {
       name: "run_script",
       description: "Run a package.json script by name and wait for it to finish.",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-      handler: async (ctx) => controller.runScriptByName(ctx.input?.name),
+      handler: async (ctx: ActionContext) => controller.runScriptByName(String(ctx.input?.name)),
     },
     {
       name: "build_app",
@@ -63,13 +65,15 @@ export function buildActions(controller) {
       name: "lint",
       description: "Run the linter. Pass { fix: true } to apply autofixes.",
       inputSchema: { type: "object", properties: { fix: { type: "boolean" } } },
-      handler: async (ctx) => controller.runLane("lint", { fix: Boolean(ctx.input?.fix) }),
+      handler: async (ctx: ActionContext) =>
+        controller.runLane("lint", { fix: Boolean(ctx.input?.fix) }),
     },
     {
       name: "format",
       description: "Run the formatter. Pass { check: true } to verify formatting without writing.",
       inputSchema: { type: "object", properties: { check: { type: "boolean" } } },
-      handler: async (ctx) => controller.runLane("format", { check: Boolean(ctx.input?.check) }),
+      handler: async (ctx: ActionContext) =>
+        controller.runLane("format", { check: Boolean(ctx.input?.check) }),
     },
     {
       name: "typecheck",
@@ -81,8 +85,8 @@ export function buildActions(controller) {
       description:
         "Run the test suite and return a structured pass/fail report. Optional { pattern } filters tests.",
       inputSchema: { type: "object", properties: { pattern: { type: "string" } } },
-      handler: async (ctx) => {
-        const r = await controller.runTests({ pattern: ctx.input?.pattern });
+      handler: async (ctx: ActionContext) => {
+        const r = await controller.runTests({ pattern: ctx.input?.pattern as string | undefined });
         return r.report
           ? { ok: r.ok, passed: r.report.passed, failed: r.report.failed, total: r.report.total }
           : r;
@@ -116,9 +120,9 @@ export function buildActions(controller) {
         type: "object",
         properties: { lane: { type: "string" }, lines: { type: "number" } },
       },
-      handler: (ctx) => {
-        const lane = ctx.input?.lane || "dev";
-        const lines = ctx.input?.lines || 200;
+      handler: (ctx: ActionContext) => {
+        const lane = (ctx.input?.lane as string) || "dev";
+        const lines = (ctx.input?.lines as number) || 200;
         const src = lane === "dev" ? controller.dev.output : controller.lanes[lane]?.output;
         const text = (src || []).join("");
         return { lane, output: text.split(/\r?\n/).slice(-lines).join("\n") };
@@ -156,11 +160,11 @@ export function buildActions(controller) {
           verify: { type: "array", items: { type: "string" } },
         },
       },
-      handler: async (ctx) => {
+      handler: async (ctx: ActionContext) => {
         const r = await controller.safeUpdate({
-          scope: ctx.input?.scope || "minor",
-          packages: ctx.input?.packages || null,
-          verify: ctx.input?.verify || null,
+          scope: (ctx.input?.scope as "patch" | "minor" | "major") || "minor",
+          packages: (ctx.input?.packages as string[]) || null,
+          verify: (ctx.input?.verify as string[]) || null,
         });
         return {
           ok: r.ok,
@@ -184,14 +188,14 @@ export function buildActions(controller) {
       description:
         "Push the most recent failure of a lane ('build'|'lint'|'typecheck'|'test'|'dev'|'script:<name>') to the chat as a context-rich Fix-with-Copilot prompt.",
       inputSchema: { type: "object", properties: { lane: { type: "string" } }, required: ["lane"] },
-      handler: async (ctx) => controller.fixIssue(ctx.input?.lane),
+      handler: async (ctx: ActionContext) => controller.fixIssue(String(ctx.input?.lane)),
     },
   ];
 
   // Anchor to the session's working directory before every action runs.
   return actions.map((action) => ({
     ...action,
-    handler: async (ctx) => {
+    handler: async (ctx: ActionContext) => {
       await controller.ensureProjectDir(ctx?.session?.workingDirectory);
       return action.handler(ctx);
     },

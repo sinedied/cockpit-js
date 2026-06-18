@@ -3,21 +3,33 @@
 // culprit isolation).
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
-import { run } from "./process-runner.mjs";
-import { readText } from "./util.mjs";
+import { run } from "./process-runner.ts";
+import { readText } from "./util.ts";
 import {
   outdated as pmOutdated,
   audit as pmAudit,
   add as pmAdd,
   install as pmInstall,
   lockfileFor,
-} from "./pm.mjs";
-import { resolveBuild, resolveLint, resolveTypecheck, resolveTest } from "./lanes.mjs";
-import { buildDepsFixPrompt } from "./fix.mjs";
+} from "./pm.ts";
+import { resolveBuild, resolveLint, resolveTypecheck, resolveTest } from "./lanes.ts";
+import { buildDepsFixPrompt } from "./fix.ts";
+import type { Controller } from "./controller.ts";
+import type {
+  AuditResult,
+  BumpKind,
+  OutdatedEntry,
+  OutdatedResult,
+  ProjectDetection,
+  UpdateFailure,
+  UpdateScope,
+  UpdateState,
+  UpdateTarget,
+} from "./types.ts";
 
 // ---- semver helpers (no external dependency) ------------------------------
 
-function parseVer(v) {
+function parseVer(v: string | null | undefined): [number, number, number] | null {
   if (!v) return null;
   const cleaned = String(v)
     .replace(/^[\^~>=<\s]+/, "")
@@ -27,7 +39,10 @@ function parseVer(v) {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
-export function classifyBump(current, next) {
+export function classifyBump(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): BumpKind {
   const a = parseVer(current);
   const b = parseVer(next);
   if (!a || !b) return "unknown";
@@ -39,14 +54,14 @@ export function classifyBump(current, next) {
 
 // ---- outdated parsing -----------------------------------------------------
 
-function parseNpmOutdated(text) {
-  let json;
+function parseNpmOutdated(text: string): OutdatedEntry[] {
+  let json: Record<string, any>;
   try {
     json = JSON.parse(text || "{}");
   } catch {
     return [];
   }
-  const list = [];
+  const list: OutdatedEntry[] = [];
   for (const [name, info] of Object.entries(json)) {
     const current = info.current || null;
     const wanted = info.wanted || null;
@@ -64,8 +79,8 @@ function parseNpmOutdated(text) {
 }
 
 // Best-effort table parser for PMs without reliable JSON output.
-function parseTableOutdated(text) {
-  const list = [];
+function parseTableOutdated(text: string): OutdatedEntry[] {
+  const list: OutdatedEntry[] = [];
   for (const line of (text || "").split(/\r?\n/)) {
     const m = /^([@\w./-]+)\s+([\d.]+\S*)\s+(?:\S+\s+)?([\d.]+\S*)\s*$/.exec(line.trim());
     if (m && m[1] !== "Package") {
@@ -82,13 +97,13 @@ function parseTableOutdated(text) {
   return list;
 }
 
-export async function listOutdated(controller) {
+export async function listOutdated(controller: Controller): Promise<OutdatedResult> {
   const d = controller.detection;
   if (!d?.hasProject) return { list: [], supported: false };
   const { argv, format } = pmOutdated(d.pm);
   controller.broadcast({ type: "deps:outdated-start" });
   const res = await run(argv, { cwd: controller.cwd });
-  let list = [];
+  let list: OutdatedEntry[] = [];
   let supported = true;
   if (format === "npm-json") list = parseNpmOutdated(res.output);
   else if (format === "pnpm-json") {
@@ -111,24 +126,24 @@ export async function listOutdated(controller) {
 
 // ---- audit ----------------------------------------------------------------
 
-function parseAudit(text) {
-  let json;
+function parseAudit(text: string): AuditResult {
+  let json: Record<string, any>;
   try {
     json = JSON.parse(text || "{}");
   } catch {
     return { vulnerabilities: [], metadata: null, supported: false };
   }
   const meta = json.metadata?.vulnerabilities || null;
-  const vulns = [];
+  const vulns: AuditResult["vulnerabilities"] = [];
   if (json.vulnerabilities) {
-    for (const [name, v] of Object.entries(json.vulnerabilities)) {
+    for (const [name, v] of Object.entries<any>(json.vulnerabilities)) {
       vulns.push({
         name,
         severity: v.severity || "unknown",
         range: v.range || null,
         fixAvailable: Boolean(v.fixAvailable),
         via: Array.isArray(v.via)
-          ? v.via.map((x) => (typeof x === "string" ? x : x.title || x.name)).filter(Boolean)
+          ? v.via.map((x: any) => (typeof x === "string" ? x : x.title || x.name)).filter(Boolean)
           : [],
       });
     }
@@ -137,13 +152,13 @@ function parseAudit(text) {
   return { vulnerabilities: vulns, metadata: meta, supported: true };
 }
 
-function severityRank(s) {
-  return { critical: 4, high: 3, moderate: 2, low: 1, info: 0 }[s] ?? 0;
+function severityRank(s: string): number {
+  return ({ critical: 4, high: 3, moderate: 2, low: 1, info: 0 } as Record<string, number>)[s] ?? 0;
 }
 
-export async function runAudit(controller) {
+export async function runAudit(controller: Controller): Promise<AuditResult> {
   const d = controller.detection;
-  if (!d?.hasProject) return { vulnerabilities: [], supported: false };
+  if (!d?.hasProject) return { vulnerabilities: [], metadata: null, supported: false };
   const { argv } = pmAudit(d.pm);
   controller.broadcast({ type: "deps:audit-start" });
   const res = await run(argv, { cwd: controller.cwd });
@@ -158,14 +173,14 @@ export async function runAudit(controller) {
 // Choose update targets toward the *latest* version that fits the requested
 // scope, classifying the jump from current → latest (so exact-pinned ranges are
 // still bumped, like npm-check-updates). `wanted` is informational only.
-function selectByScope(list, scope) {
+function selectByScope(list: OutdatedEntry[], scope: UpdateScope): UpdateTarget[] {
   const allowed =
     scope === "patch"
       ? new Set(["patch"])
       : scope === "minor"
         ? new Set(["patch", "minor"])
         : new Set(["patch", "minor", "major"]);
-  const targets = [];
+  const targets: UpdateTarget[] = [];
   for (const o of list) {
     const target = o.latest || o.wanted;
     if (!target) continue;
@@ -176,15 +191,15 @@ function selectByScope(list, scope) {
   return targets;
 }
 
-function defaultVerify(d) {
-  const steps = [];
+function defaultVerify(d: ProjectDetection): string[] {
+  const steps: string[] = [];
   if (d.typescript) steps.push("typecheck");
-  if (resolveBuild(d).argv) steps.push("build");
+  if (!resolveBuild(d).unavailable) steps.push("build");
   if (d.testRunner) steps.push("test");
   return steps;
 }
 
-function resolveVerifyStep(d, step) {
+function resolveVerifyStep(d: ProjectDetection, step: string) {
   switch (step) {
     case "typecheck":
       return resolveTypecheck(d);
@@ -195,13 +210,26 @@ function resolveVerifyStep(d, step) {
     case "test":
       return resolveTest(d, {});
     default:
-      return { unavailable: true, reason: `Unknown verify step: ${step}` };
+      return { unavailable: true as const, reason: `Unknown verify step: ${step}` };
   }
 }
 
-async function applyTargets(controller, targets, devSet, log) {
-  const d = controller.detection;
-  const groups = [
+type Log = (chunk: string) => void;
+
+interface ApplyResult {
+  ok: boolean;
+  output?: string;
+  step?: string;
+}
+
+async function applyTargets(
+  controller: Controller,
+  targets: UpdateTarget[],
+  devSet: Set<string>,
+  log?: Log,
+): Promise<{ ok: boolean; output: string }> {
+  const d = controller.detection as ProjectDetection;
+  const groups: Array<[UpdateTarget[], boolean]> = [
     [targets.filter((t) => !devSet.has(t.name)), false],
     [targets.filter((t) => devSet.has(t.name)), true],
   ];
@@ -216,8 +244,8 @@ async function applyTargets(controller, targets, devSet, log) {
   return { ok: true, output };
 }
 
-async function verifyAll(controller, steps, log) {
-  const d = controller.detection;
+async function verifyAll(controller: Controller, steps: string[], log?: Log): Promise<ApplyResult> {
+  const d = controller.detection as ProjectDetection;
   for (const step of steps) {
     const cmd = resolveVerifyStep(d, step);
     if (cmd.unavailable) {
@@ -231,7 +259,13 @@ async function verifyAll(controller, steps, log) {
   return { ok: true };
 }
 
-async function applyAndVerify(controller, targets, devSet, steps, log) {
+async function applyAndVerify(
+  controller: Controller,
+  targets: UpdateTarget[],
+  devSet: Set<string>,
+  steps: string[],
+  log?: Log,
+): Promise<ApplyResult> {
   const applied = await applyTargets(controller, targets, devSet, log);
   if (!applied.ok) return { ok: false, step: "install", output: applied.output };
   const verified = await verifyAll(controller, steps, log);
@@ -239,31 +273,62 @@ async function applyAndVerify(controller, targets, devSet, steps, log) {
   return { ok: true };
 }
 
-async function restore(controller, snap, manifestPath, lockPath, log) {
-  const d = controller.detection;
-  await writeFile(manifestPath, snap.manifest);
+interface Snapshot {
+  manifest: string | null;
+  lock: string | null;
+}
+
+async function restore(
+  controller: Controller,
+  snap: Snapshot,
+  manifestPath: string,
+  lockPath: string,
+  log?: Log,
+): Promise<void> {
+  const d = controller.detection as ProjectDetection;
+  await writeFile(manifestPath, snap.manifest ?? "");
   if (snap.lock != null) await writeFile(lockPath, snap.lock);
   log?.("  · restoring previous dependencies…\n");
   await run(pmInstall(d.pm), { cwd: controller.cwd });
 }
 
+export interface SafeUpdateOptions {
+  scope?: UpdateScope;
+  packages?: string[] | null;
+  verify?: string[] | null;
+}
+
+export interface SafeUpdateResult {
+  ok: boolean;
+  reason?: string;
+  kept?: UpdateTarget[];
+  failed?: UpdateFailure[];
+}
+
 export async function safeUpdate(
-  controller,
-  { scope = "minor", packages = null, verify = null } = {},
-) {
+  controller: Controller,
+  { scope = "minor", packages = null, verify = null }: SafeUpdateOptions = {},
+): Promise<SafeUpdateResult> {
   const d = controller.detection;
   if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
 
-  const update = { status: "running", scope, log: [], kept: [], failed: [], startedAt: Date.now() };
+  const update: UpdateState = {
+    status: "running",
+    scope,
+    log: [],
+    kept: [],
+    failed: [],
+    startedAt: Date.now(),
+  };
   controller.deps.update = update;
-  const log = (chunk) => {
+  const log: Log = (chunk) => {
     update.log.push(chunk);
     controller.broadcast({ type: "deps:update-log", chunk });
   };
   controller.broadcast({ type: "deps:update-start", scope });
 
   // Resolve targets.
-  let targets;
+  let targets: UpdateTarget[];
   if (packages?.length) {
     targets = packages.map((p) => {
       const at = p.lastIndexOf("@");
@@ -284,9 +349,9 @@ export async function safeUpdate(
   const manifestPath = path.join(controller.cwd, "package.json");
   const lockName = lockfileFor(d.pm);
   const lockPath = path.join(controller.cwd, lockName);
-  const snap = { manifest: await readText(manifestPath), lock: await readText(lockPath) };
+  const snap: Snapshot = { manifest: await readText(manifestPath), lock: await readText(lockPath) };
   const manifestJson = JSON.parse(snap.manifest || "{}");
-  const devSet = new Set(Object.keys(manifestJson.devDependencies || {}));
+  const devSet = new Set<string>(Object.keys(manifestJson.devDependencies || {}));
   // null/undefined verify → sensible defaults; an explicit [] means "no verify".
   const steps = verify == null ? defaultVerify(d) : verify;
   // Keep the pre-update snapshot so rollback_last_update can restore it.
@@ -308,8 +373,8 @@ export async function safeUpdate(
   await restore(controller, snap, manifestPath, lockPath, log);
 
   // Attempt 2: isolate each package from a clean base.
-  const kept = [];
-  const failed = [];
+  const kept: UpdateTarget[] = [];
+  const failed: UpdateFailure[] = [];
   for (const t of targets) {
     log(`\n▶ Testing ${t.name}@${t.version} in isolation…\n`);
     await restore(controller, snap, manifestPath, lockPath);
@@ -332,7 +397,7 @@ export async function safeUpdate(
       // Rare cross-package interaction: fall back to cumulative application.
       log(`  ✗ Safe set failed together at "${combined.step}"; applying cumulatively…\n`);
       await restore(controller, snap, manifestPath, lockPath);
-      const cumulative = [];
+      const cumulative: UpdateTarget[] = [];
       for (const t of kept) {
         const rr = await applyAndVerify(controller, [...cumulative, t], devSet, steps, log);
         if (rr.ok) cumulative.push(t);
@@ -361,7 +426,12 @@ export async function safeUpdate(
   return finish(controller, update, kept, failed);
 }
 
-function finish(controller, update, kept, failed = []) {
+function finish(
+  controller: Controller,
+  update: UpdateState,
+  kept: UpdateTarget[],
+  failed: UpdateFailure[] = [],
+): SafeUpdateResult {
   update.status = "done";
   update.kept = kept;
   update.failed = failed;
@@ -376,14 +446,16 @@ function finish(controller, update, kept, failed = []) {
 }
 
 // Restore package.json + lockfile to the state captured before the last update.
-export async function rollbackLast(controller) {
+export async function rollbackLast(
+  controller: Controller,
+): Promise<{ ok: boolean; reason?: string }> {
   const update = controller.deps.update;
   const snap = update?._snapshot;
   if (!snap) return { ok: false, reason: "No previous update to roll back." };
-  const d = controller.detection;
+  const d = controller.detection as ProjectDetection;
   const manifestPath = path.join(controller.cwd, "package.json");
   const lockPath = path.join(controller.cwd, snap.lockName);
-  await writeFile(manifestPath, snap.manifest);
+  await writeFile(manifestPath, snap.manifest ?? "");
   if (snap.lock != null) await writeFile(lockPath, snap.lock);
   controller.broadcast({
     type: "deps:update-log",

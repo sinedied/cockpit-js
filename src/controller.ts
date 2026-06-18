@@ -5,20 +5,53 @@ import { EventEmitter } from "node:events";
 import path from "node:path";
 import os from "node:os";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { detect } from "./detect.mjs";
-import { run, start } from "./process-runner.mjs";
-import { runScript as pmRunScript } from "./pm.mjs";
-import { resolveLane, resolveDev, resolveTest, laneAvailability } from "./lanes.mjs";
-import { parseJestLike, parseTap, parseTextCounts } from "./test-report.mjs";
-import { pushCapped, extractUrl, isPortInUse } from "./util.mjs";
-import { buildFixPrompt, buildTestFixPrompt } from "./fix.mjs";
-import { loadSettings, saveSettings, defaultPinnedScripts } from "./settings.mjs";
-import * as deps from "./deps.mjs";
+import { detect } from "./detect.ts";
+import { run, start } from "./process-runner.ts";
+import { runScript as pmRunScript } from "./pm.ts";
+import { resolveLane, resolveDev, resolveTest, laneAvailability } from "./lanes.ts";
+import { parseJestLike, parseTap, parseTextCounts } from "./test-report.ts";
+import { pushCapped, extractUrl, isPortInUse } from "./util.ts";
+import { buildFixPrompt, buildTestFixPrompt } from "./fix.ts";
+import { loadSettings, saveSettings, defaultPinnedScripts } from "./settings.ts";
+import * as deps from "./deps.ts";
+import type { SafeUpdateOptions, SafeUpdateResult } from "./deps.ts";
+import type { TestOptions } from "./lanes.ts";
+import type {
+  AppEvent,
+  Detection,
+  DepsState,
+  DevState,
+  FixContextEntry,
+  LaneState,
+  ResolvedSettings,
+  SettingsPatch,
+  TestReport,
+} from "./types.ts";
 
 const ONE_SHOT_LANES = ["build", "lint", "format", "typecheck", "test"];
 
+export interface ControllerOptions {
+  sendToChat?: (prompt: string) => Promise<void> | void;
+}
+
+interface LaneRunResult {
+  ok: boolean;
+  reason?: string;
+  exitCode?: number;
+}
+
 export class Controller {
-  constructor(cwd, { sendToChat } = {}) {
+  cwd: string;
+  sendToChat: (prompt: string) => Promise<void> | void;
+  events: EventEmitter;
+  detection: Detection | null;
+  lanes: Record<string, LaneState>;
+  test: { report: TestReport | null };
+  dev: DevState;
+  deps: DepsState;
+  fixContext: Record<string, FixContextEntry>;
+
+  constructor(cwd: string, { sendToChat }: ControllerOptions = {}) {
     this.cwd = cwd;
     this.sendToChat = sendToChat || (async () => {});
     this.events = new EventEmitter();
@@ -32,7 +65,7 @@ export class Controller {
     this.fixContext = {}; // lane -> last failure { command, output, exitCode, report }
   }
 
-  freshLane(id) {
+  freshLane(id: string): LaneState {
     return {
       id,
       label: null,
@@ -44,17 +77,17 @@ export class Controller {
     };
   }
 
-  broadcast(evt) {
+  broadcast(evt: AppEvent): void {
     this.events.emit("event", evt);
   }
 
-  log(message, level = "info") {
+  log(message: string, level = "info"): void {
     this.broadcast({ type: "log", level, message });
   }
 
-  async init() {
+  async init(): Promise<Detection> {
     this.detection = await detect(this.cwd);
-    if (this.detection?.hasProject) this.detection.availability = laneAvailability(this.detection);
+    if (this.detection.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
     return this.detection;
   }
@@ -62,7 +95,7 @@ export class Controller {
   // Anchor the controller to the session's real working directory. The extension
   // process cwd is not the project root, so the host supplies the project path on
   // every canvas open / action via `ctx.session.workingDirectory`.
-  async ensureProjectDir(dir) {
+  async ensureProjectDir(dir?: string): Promise<Detection | null> {
     if (dir && dir !== this.cwd) {
       this.cwd = dir;
       await this.init();
@@ -72,23 +105,23 @@ export class Controller {
     return this.detection;
   }
 
-  async refresh() {
+  async refresh(): Promise<Detection> {
     this.detection = await detect(this.cwd);
-    if (this.detection?.hasProject) this.detection.availability = laneAvailability(this.detection);
+    if (this.detection.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
     return this.detection;
   }
 
   // ---- UI settings (pinned scripts + theme), persisted per project ----------
 
-  async getSettings() {
+  async getSettings(): Promise<ResolvedSettings> {
     const s = await loadSettings(this.cwd);
     const pinned = s.pinnedScripts == null ? defaultPinnedScripts(this.detection) : s.pinnedScripts;
     return { theme: s.theme || "auto", pinnedScripts: pinned };
   }
 
-  async setSettings(patch = {}) {
-    const clean = {};
+  async setSettings(patch: SettingsPatch = {}): Promise<ResolvedSettings> {
+    const clean: SettingsPatch = {};
     if (typeof patch.theme === "string") clean.theme = patch.theme;
     if (Array.isArray(patch.pinnedScripts)) clean.pinnedScripts = patch.pinnedScripts;
     const s = await saveSettings(this.cwd, clean);
@@ -111,7 +144,7 @@ export class Controller {
 
   // ---- One-shot lanes (build / lint / format / typecheck) -----------------
 
-  async runLane(id, opts = {}) {
+  async runLane(id: string, opts: { fix?: boolean; check?: boolean } = {}): Promise<LaneRunResult> {
     const d = this.detection;
     if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
     const lane = this.lanes[id];
@@ -156,14 +189,16 @@ export class Controller {
 
   // ---- Test lane with graphical report ------------------------------------
 
-  async runTests(opts = {}) {
+  async runTests(
+    opts: TestOptions = {},
+  ): Promise<{ ok: boolean; reason?: string; report?: TestReport | null }> {
     const d = this.detection;
     if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
     const lane = this.lanes.test;
     if (lane.status === "running") return { ok: false, reason: "Tests are already running." };
 
-    let tmpDir = null;
-    let outputFile;
+    let tmpDir: string | null = null;
+    let outputFile: string | undefined;
     const spec = resolveTest(d, opts);
     if (spec.unavailable) {
       this.log(`test: ${spec.reason}`, "warning");
@@ -174,6 +209,10 @@ export class Controller {
       outputFile = path.join(tmpDir, "results.json");
     }
     const resolved = outputFile ? resolveTest(d, { ...opts, outputFile }) : spec;
+    if (resolved.unavailable) {
+      this.log(`test: ${resolved.reason}`, "warning");
+      return { ok: false, reason: resolved.reason };
+    }
 
     lane.status = "running";
     lane.label = resolved.label;
@@ -191,7 +230,7 @@ export class Controller {
       },
     });
 
-    let report = null;
+    let report: TestReport | null = null;
     try {
       if (resolved.parser === "jest" && outputFile) {
         const json = JSON.parse(await readFile(outputFile, "utf8"));
@@ -202,7 +241,8 @@ export class Controller {
         report = parseTextCounts(lane.output.join(""));
       }
     } catch (err) {
-      this.log(`Could not parse test results: ${err.message}`, "warning");
+      const message = err instanceof Error ? err.message : String(err);
+      this.log(`Could not parse test results: ${message}`, "warning");
       report = parseTextCounts(lane.output.join(""));
     }
     if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -227,7 +267,7 @@ export class Controller {
 
   // ---- Arbitrary package.json script --------------------------------------
 
-  async runScriptByName(name) {
+  async runScriptByName(name: string): Promise<LaneRunResult> {
     const d = this.detection;
     if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
     if (!d.scripts[name]) return { ok: false, reason: `No "${name}" script in package.json.` };
@@ -263,7 +303,7 @@ export class Controller {
 
   // ---- Dev server ---------------------------------------------------------
 
-  async startDev() {
+  async startDev(): Promise<{ ok: boolean; reason?: string; url?: string | null; label?: string }> {
     const d = this.detection;
     if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
     if (this.dev.status === "running")
@@ -306,7 +346,7 @@ export class Controller {
       },
     });
     this.dev._handle = handle;
-    this.dev.pid = handle.child.pid;
+    this.dev.pid = handle.child.pid ?? null;
     handle.child.on("close", (code) => {
       this.dev.status = "stopped";
       this.dev.pid = null;
@@ -323,7 +363,7 @@ export class Controller {
     return { ok: true, label: cmd.label };
   }
 
-  async stopDev() {
+  async stopDev(): Promise<{ ok: boolean; reason?: string }> {
     if (this.dev.status !== "running" || !this.dev._handle)
       return { ok: false, reason: "Dev server is not running." };
     await this.dev._handle.stop();
@@ -334,7 +374,7 @@ export class Controller {
     return { ok: true };
   }
 
-  // ---- Dependencies (delegated to deps.mjs) -------------------------------
+  // ---- Dependencies (delegated to deps.ts) --------------------------------
 
   listOutdated() {
     return deps.listOutdated(this);
@@ -342,7 +382,7 @@ export class Controller {
   runAudit() {
     return deps.runAudit(this);
   }
-  safeUpdate(opts) {
+  safeUpdate(opts?: SafeUpdateOptions): Promise<SafeUpdateResult> {
     return deps.safeUpdate(this, opts);
   }
   rollbackLastUpdate() {
@@ -351,12 +391,16 @@ export class Controller {
 
   // ---- Fix with Copilot ---------------------------------------------------
 
-  async fixIssue(lane) {
+  async fixIssue(lane: string): Promise<{ ok: boolean; reason?: string }> {
     const ctx = this.fixContext[lane];
     if (!ctx) return { ok: false, reason: `No recorded failure for "${lane}".` };
-    let prompt;
+    let prompt: string;
     if (lane === "test" && ctx.report) {
-      prompt = buildTestFixPrompt({ command: ctx.command, report: ctx.report, output: ctx.output });
+      prompt = buildTestFixPrompt({
+        command: ctx.command ?? "",
+        report: ctx.report,
+        output: ctx.output,
+      });
     } else {
       prompt = buildFixPrompt({
         lane,
@@ -370,7 +414,7 @@ export class Controller {
     return { ok: true };
   }
 
-  async sendPromptToChat(prompt) {
+  async sendPromptToChat(prompt: string): Promise<void> {
     await this.sendToChat(prompt);
   }
 }

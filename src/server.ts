@@ -2,13 +2,16 @@
 // controller events over SSE, and exposes a small JSON action API that mirrors
 // the agent-callable actions. Binds to 127.0.0.1 on an ephemeral port.
 import { createServer } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AppEvent } from "./types.ts";
+import type { Controller } from "./controller.ts";
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 
-const CONTENT_TYPES = {
+const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -16,13 +19,13 @@ const CONTENT_TYPES = {
   ".json": "application/json; charset=utf-8",
 };
 
-function sendJson(res, status, body) {
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body ?? {});
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(data);
 }
 
-function readBody(req) {
+function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
     let data = "";
     req.on("data", (c) => (data += c));
@@ -37,7 +40,7 @@ function readBody(req) {
   });
 }
 
-async function serveStatic(res, urlPath) {
+async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
   const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
   const filePath = path.join(PUBLIC_DIR, rel);
   if (!filePath.startsWith(PUBLIC_DIR)) {
@@ -57,14 +60,14 @@ async function serveStatic(res, urlPath) {
   }
 }
 
-function handleSse(controller, res) {
+function handleSse(controller: Controller, res: ServerResponse): void {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
   res.write(`data: ${JSON.stringify({ type: "snapshot", state: controller.getState() })}\n\n`);
-  const onEvent = (evt) => {
+  const onEvent = (evt: AppEvent) => {
     try {
       res.write(`data: ${JSON.stringify(evt)}\n\n`);
     } catch {}
@@ -83,7 +86,12 @@ function handleSse(controller, res) {
 
 // Routes that complete quickly are awaited; long-running ones are fired off and
 // reported through SSE so the HTTP call returns immediately.
-async function handleApi(controller, req, res, route) {
+async function handleApi(
+  controller: Controller,
+  req: IncomingMessage,
+  res: ServerResponse,
+  route: string,
+): Promise<void> {
   const body = req.method === "POST" ? await readBody(req) : {};
   switch (route) {
     case "GET /api/state":
@@ -129,9 +137,11 @@ async function handleApi(controller, req, res, route) {
   }
 }
 
-export async function startServer(controller) {
+export async function startServer(
+  controller: Controller,
+): Promise<{ server: Server; url: string }> {
   const server = createServer(async (req, res) => {
-    const url = new URL(req.url, "http://127.0.0.1");
+    const url = new URL(req.url || "/", "http://127.0.0.1");
     const route = `${req.method} ${url.pathname}`;
     try {
       if (url.pathname === "/events") return handleSse(controller, res);
@@ -143,7 +153,7 @@ export async function startServer(controller) {
       sendJson(res, 500, { ok: false, error: String(err) });
     }
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();
   const port = typeof addr === "object" && addr ? addr.port : 0;
   return { server, url: `http://127.0.0.1:${port}/` };

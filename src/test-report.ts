@@ -1,17 +1,21 @@
 // Normalize test-runner output into a single graphical report shape:
 //   { ok, total, passed, failed, skipped, pending, suites: [{ name, tests }] }
 // where tests is [{ name, status, message }].
+import type { TestReport } from "./types.ts";
 
-function emptyReport() {
+function emptyReport(): TestReport {
   return { ok: true, total: 0, passed: 0, failed: 0, skipped: 0, pending: 0, suites: [] };
 }
 
 // Vitest's JSON reporter mirrors Jest's, so one parser handles both.
-export function parseJestLike(json) {
+export function parseJestLike(json: any): TestReport {
   const report = emptyReport();
   const results = Array.isArray(json?.testResults) ? json.testResults : [];
   for (const file of results) {
-    const suite = { name: file.name || file.testFilePath || "tests", tests: [] };
+    const suite = {
+      name: file.name || file.testFilePath || "tests",
+      tests: [] as TestReport["suites"][number]["tests"],
+    };
     const assertions = Array.isArray(file.assertionResults) ? file.assertionResults : [];
     for (const a of assertions) {
       const status = a.status || "unknown";
@@ -39,7 +43,7 @@ export function parseJestLike(json) {
   return report;
 }
 
-function tallyFromSuites(report) {
+function tallyFromSuites(report: TestReport): void {
   for (const s of report.suites) {
     for (const t of s.tests) {
       report.total++;
@@ -52,11 +56,11 @@ function tallyFromSuites(report) {
 }
 
 // node:test (and any TAP13 emitter): parse `ok` / `not ok` lines.
-export function parseTap(text) {
+export function parseTap(text: string): TestReport {
   const report = emptyReport();
-  const suite = { name: "tests", tests: [] };
+  const suite = { name: "tests", tests: [] as TestReport["suites"][number]["tests"] };
   const lines = (text || "").split(/\r?\n/);
-  let pendingFail = null;
+  let pendingFail: TestReport["suites"][number]["tests"][number] | null = null;
   for (const line of lines) {
     const m = /^(ok|not ok)\s+\d+\s*-?\s*(.*)$/.exec(line.trim());
     if (m) {
@@ -85,7 +89,7 @@ export function parseTap(text) {
 }
 
 // Last-resort: scrape pass/fail counts from arbitrary runner output (bun, mocha).
-export function parseTextCounts(text) {
+export function parseTextCounts(text: string): TestReport {
   const report = emptyReport();
   const t = text || "";
   const pass = /(\d+)\s+pass(?:ed|ing)?/i.exec(t) || /(\d+)\s+tests?\s+passed/i.exec(t);
