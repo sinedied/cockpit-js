@@ -8,8 +8,8 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] test panel: missing spacing
 - [x] UI: spinner when running/loading
 - [x] icons for tabs
+- [x] better UI: hint on hover/click
 
-- [ ] better UI: hint on hover/click
 
 - [ ] no disctinction in pinned script, default pinned scripts can be unpinned too
 
