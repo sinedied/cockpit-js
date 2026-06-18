@@ -88,6 +88,10 @@ async function handleApi(controller, req, res, route) {
   switch (route) {
     case "GET /api/state":
       return sendJson(res, 200, controller.getState());
+    case "GET /api/settings":
+      return sendJson(res, 200, await controller.getSettings());
+    case "POST /api/settings":
+      return sendJson(res, 200, await controller.setSettings(body));
     case "POST /api/refresh":
       return sendJson(res, 200, await controller.refresh());
     case "POST /api/lane": {

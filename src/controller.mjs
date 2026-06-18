@@ -8,10 +8,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { detect } from "./detect.mjs";
 import { run, start } from "./process-runner.mjs";
 import { runScript as pmRunScript } from "./pm.mjs";
-import { resolveLane, resolveDev, resolveTest } from "./lanes.mjs";
+import { resolveLane, resolveDev, resolveTest, laneAvailability } from "./lanes.mjs";
 import { parseJestLike, parseTap, parseTextCounts } from "./test-report.mjs";
 import { pushCapped, extractUrl, isPortInUse } from "./util.mjs";
 import { buildFixPrompt, buildTestFixPrompt } from "./fix.mjs";
+import { loadSettings, saveSettings, defaultPinnedScripts } from "./settings.mjs";
 import * as deps from "./deps.mjs";
 
 const ONE_SHOT_LANES = ["build", "lint", "format", "typecheck", "test"];
@@ -53,6 +54,7 @@ export class Controller {
 
   async init() {
     this.detection = await detect(this.cwd);
+    if (this.detection?.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
     return this.detection;
   }
@@ -72,8 +74,26 @@ export class Controller {
 
   async refresh() {
     this.detection = await detect(this.cwd);
+    if (this.detection?.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
     return this.detection;
+  }
+
+  // ---- UI settings (pinned scripts + theme), persisted per project ----------
+
+  async getSettings() {
+    const s = await loadSettings(this.cwd);
+    const pinned = s.pinnedScripts == null ? defaultPinnedScripts(this.detection) : s.pinnedScripts;
+    return { theme: s.theme || "auto", pinnedScripts: pinned };
+  }
+
+  async setSettings(patch = {}) {
+    const clean = {};
+    if (typeof patch.theme === "string") clean.theme = patch.theme;
+    if (Array.isArray(patch.pinnedScripts)) clean.pinnedScripts = patch.pinnedScripts;
+    const s = await saveSettings(this.cwd, clean);
+    const pinned = s.pinnedScripts == null ? defaultPinnedScripts(this.detection) : s.pinnedScripts;
+    return { theme: s.theme || "auto", pinnedScripts: pinned };
   }
 
   getState() {

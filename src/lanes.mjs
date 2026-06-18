@@ -165,3 +165,26 @@ export function resolveLane(d, laneId, opts = {}) {
       return { unavailable: true, reason: `Unknown lane: ${laneId}` };
   }
 }
+
+// Which lanes can actually run for this project — used by the UI to hide
+// buttons/tabs that don't apply.
+export function laneAvailability(d) {
+  if (!d || !d.hasProject) {
+    return {
+      build: false,
+      typecheck: false,
+      lint: false,
+      format: false,
+      test: false,
+      dev: false,
+    };
+  }
+  return {
+    build: !resolveBuild(d).unavailable,
+    typecheck: !resolveTypecheck(d).unavailable,
+    lint: !resolveLint(d).unavailable,
+    format: !resolveFormat(d).unavailable,
+    test: !resolveTest(d).unavailable,
+    dev: !resolveDev(d).unavailable,
+  };
+}

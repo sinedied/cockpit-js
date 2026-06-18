@@ -19,8 +19,10 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   - `detect.mjs` (pm/scripts/framework/TS/runners), `pm.mjs`, `process-runner.mjs`
     (cross-platform spawn), `lanes.mjs`, `test-report.mjs`, `deps.mjs` (safe-update
     loop + rollback), `controller.mjs` (central state + SSE events), `server.mjs`
-    (http + SSE + `/api/*`), `actions.mjs` (agent actions), `fix.mjs` (prompt builders).
-- `public/` — vanilla HTML/CSS/JS UI (Console / Tests / Dev / Dependencies tabs).
+    (http + SSE + `/api/*`), `actions.mjs` (agent actions), `fix.mjs` (prompt builders),
+    `settings.mjs` (per-project pinned scripts + theme).
+- `public/` — vanilla HTML/CSS/JS UI (Console / Tests / Dev / Dependencies tabs),
+  GitHub Primer light/dark theming + inline Octicon sprite (MIT, bundled, no network).
 - `.github/extensions/node-pilot/extension.mjs` — dog-food wrapper that imports the
   root `extension.mjs` so the repo runs the extension against itself.
 
@@ -35,6 +37,15 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   `session.log()` (host-side) or `controller.broadcast`/SSE for UI.
 - SDK import only resolves inside the Copilot runtime; keep `src/` SDK-free.
 - Canvas action names must NOT start with `canvas.`.
+- **No theme/icon inheritance**: the host injects no theme CSS vars/classes and the
+  canvas API has no icon field. Theme follows OS `prefers-color-scheme` + a manual
+  Auto/Light/Dark toggle; tab icon is a best-effort favicon (`public/icon.svg`).
+- **Settings persist server-side** in `~/.node-pilot/settings.json` (keyed by project
+  path), NOT in iframe `localStorage` — each canvas open gets a fresh loopback port,
+  changing the origin and wiping `localStorage`. See `src/settings.mjs`.
+- **Lane availability**: each `resolve*()` in `lanes.mjs` reports `{unavailable}`;
+  `laneAvailability(d)` aggregates it onto `detection.availability` so the UI hides
+  lanes/tabs that don't apply.
 
 ## Workflow
 

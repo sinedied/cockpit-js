@@ -3,6 +3,7 @@
 // shared controller state.
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const ANSI = /\x1b\[[0-9;]*m/g;
 const strip = (s) => (s || "").replace(ANSI, "");
 
@@ -12,6 +13,7 @@ const state = {
   test: { report: null },
   dev: { status: "stopped", url: null, output: "" },
   deps: { outdated: null, audit: null, update: null },
+  settings: { theme: "auto", pinnedScripts: [] },
 };
 
 let activeConsoleLane = null;
@@ -29,26 +31,50 @@ async function api(path, body) {
   return res.json().catch(() => ({}));
 }
 
+// ---- Theme ----------------------------------------------------------------
+// The host doesn't expose its in-app theme, so we follow the OS appearance
+// (prefers-color-scheme) by default and let the user force light/dark. The
+// choice is persisted server-side and applied via a data-theme override.
+
+const THEME_NEXT = { auto: "light", light: "dark", dark: "auto" };
+const THEME_ICON = { auto: "device-desktop", light: "sun", dark: "moon" };
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+  else root.removeAttribute("data-theme");
+  const btn = $("#theme-toggle");
+  btn.querySelector("use").setAttribute("href", `#oct-${THEME_ICON[theme] || "device-desktop"}`);
+  btn.title = `Theme: ${theme}`;
+}
+
 // ---- Tabs -----------------------------------------------------------------
 
 function showTab(name) {
-  for (const b of document.querySelectorAll(".tabs button"))
-    b.classList.toggle("active", b.dataset.tab === name);
-  for (const p of document.querySelectorAll(".tab-panel"))
-    p.classList.toggle("active", p.id === `tab-${name}`);
+  for (const b of $$(".tabs button")) b.classList.toggle("active", b.dataset.tab === name);
+  for (const p of $$(".tab-panel")) p.classList.toggle("active", p.id === `tab-${name}`);
 }
 
-document.querySelectorAll(".tabs button").forEach((b) => {
-  b.addEventListener("click", () => showTab(b.dataset.tab));
+$$(".tabs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    if (b.classList.contains("hidden")) return;
+    showTab(b.dataset.tab);
+  });
 });
 
 // ---- Header / detection ---------------------------------------------------
 
-function badge(text) {
+function badge(text, muted) {
   const s = document.createElement("span");
-  s.className = "badge";
+  s.className = muted ? "badge muted" : "badge";
   s.textContent = text;
   return s;
+}
+
+function setControlsEnabled(enabled) {
+  $$(".lane-btn").forEach((b) => (b.disabled = !enabled));
+  $("#scripts-toggle").disabled = !enabled;
+  $$(".segmented button").forEach((b) => (b.disabled = !enabled));
 }
 
 function renderProject() {
@@ -59,27 +85,121 @@ function renderProject() {
   if (!d || !d.hasProject) {
     notice.textContent = d?.reason || "No Node.js project (package.json) found in this folder.";
     notice.classList.remove("hidden");
-    document.querySelectorAll(".lane-btn, #scripts").forEach((b) => (b.disabled = true));
+    setControlsEnabled(false);
     return;
   }
   notice.classList.add("hidden");
-  document.querySelectorAll(".lane-btn, #scripts").forEach((b) => (b.disabled = false));
+  setControlsEnabled(true);
   wrap.append(badge(`${d.name}${d.version ? " " + d.version : ""}`));
   wrap.append(badge(d.pm));
   wrap.append(badge(d.framework.label));
   if (d.typescript) wrap.append(badge("TypeScript"));
   if (d.testRunner) wrap.append(badge(d.testRunner));
   if (d.linter) wrap.append(badge(d.linter));
-  if (d.workspaces) wrap.append(badge("workspaces"));
+  if (d.workspaces) wrap.append(badge("workspaces", true));
 
-  const sel = $("#scripts");
-  sel.innerHTML = '<option value="">—</option>';
-  for (const name of d.scriptNames || []) {
-    const o = document.createElement("option");
-    o.value = name;
-    o.textContent = name;
-    sel.append(o);
+  renderLanes();
+  renderTabs();
+  renderPinned();
+}
+
+// Show only the lane buttons that apply to this project.
+function renderLanes() {
+  const a = state.detection?.availability || {};
+  const hasProject = !!state.detection?.hasProject;
+  $$(".lane-btn[data-lane]").forEach((b) => {
+    const hide = hasProject && a[b.dataset.lane] === false;
+    b.classList.toggle("hidden", hide);
+  });
+}
+
+// Hide the Tests / Dev tabs when the project has nothing to run there.
+function renderTabs() {
+  const a = state.detection?.availability || {};
+  const hasProject = !!state.detection?.hasProject;
+  $("#tabbtn-tests").classList.toggle("hidden", hasProject && a.test === false);
+  $("#tabbtn-dev").classList.toggle("hidden", hasProject && a.dev === false);
+  const active = $(".tabs button.active");
+  if (active && active.classList.contains("hidden")) showTab("console");
+}
+
+// ---- Scripts (pinnable menu) ----------------------------------------------
+
+function renderPinned() {
+  const wrap = $("#pinned");
+  wrap.innerHTML = "";
+  const names = state.detection?.scriptNames || [];
+  for (const name of state.settings.pinnedScripts || []) {
+    if (!names.includes(name)) continue;
+    const b = document.createElement("button");
+    b.className = "lane-btn script";
+    b.dataset.script = name;
+    b.disabled = !state.detection?.hasProject;
+    b.innerHTML = `<svg class="oi"><use href="#oct-terminal" /></svg>`;
+    b.append(document.createTextNode(name));
+    b.addEventListener("click", () => api("/api/script", { name }));
+    wrap.append(b);
   }
+}
+
+function renderScriptsMenu() {
+  const menu = $("#scripts-menu");
+  const names = state.detection?.scriptNames || [];
+  const pinned = new Set(state.settings.pinnedScripts || []);
+  menu.innerHTML = "";
+  if (!names.length) {
+    menu.innerHTML = '<div class="menu-empty">No scripts in package.json.</div>';
+    return;
+  }
+  const head = document.createElement("div");
+  head.className = "menu-head";
+  head.textContent = "Pin to toolbar · click a name to run";
+  menu.append(head);
+  for (const name of names) {
+    const item = document.createElement("div");
+    item.className = "menu-item";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = pinned.has(name);
+    cb.title = "Pin to toolbar";
+    cb.addEventListener("change", () => togglePin(name, cb.checked));
+    const label = document.createElement("span");
+    label.className = "menu-name";
+    label.textContent = name;
+    label.title = "Run script";
+    label.addEventListener("click", () => {
+      api("/api/script", { name });
+      closeScriptsMenu();
+    });
+    item.append(cb, label);
+    menu.append(item);
+  }
+}
+
+async function togglePin(name, pin) {
+  const set = new Set(state.settings.pinnedScripts || []);
+  if (pin) set.add(name);
+  else set.delete(name);
+  const names = state.detection?.scriptNames || [];
+  const pinnedScripts = names.filter((n) => set.has(n));
+  state.settings.pinnedScripts = pinnedScripts;
+  renderPinned();
+  const res = await api("/api/settings", { pinnedScripts });
+  if (res && Array.isArray(res.pinnedScripts)) {
+    state.settings.pinnedScripts = res.pinnedScripts;
+    renderPinned();
+  }
+}
+
+function openScriptsMenu() {
+  renderScriptsMenu();
+  $("#scripts-menu").classList.remove("hidden");
+  $("#scripts-toggle").setAttribute("aria-expanded", "true");
+}
+
+function closeScriptsMenu() {
+  $("#scripts-menu").classList.add("hidden");
+  $("#scripts-toggle").setAttribute("aria-expanded", "false");
 }
 
 // ---- Console --------------------------------------------------------------
@@ -97,6 +217,15 @@ function setConsoleLane(id) {
   renderConsoleStatus();
 }
 
+const STATUS_ICON = { running: "dot-fill", passed: "check-circle-fill", failed: "x-circle-fill" };
+
+function statusChip(chip, status) {
+  const icon = STATUS_ICON[status];
+  chip.className = `status-chip ${status}`;
+  chip.innerHTML = icon ? `<svg class="oi"><use href="#oct-${icon}" /></svg>` : "";
+  chip.append(document.createTextNode(status));
+}
+
 function renderConsoleStatus() {
   const id = activeConsoleLane;
   const chip = $("#console-status");
@@ -108,13 +237,20 @@ function renderConsoleStatus() {
     return;
   }
   const st = laneStatus(id);
-  chip.textContent = st;
-  chip.className = `status-chip ${st}`;
+  statusChip(chip, st);
   fix.classList.toggle("hidden", st !== "failed");
   fix.dataset.lane = id;
 }
 
 // ---- Tests ----------------------------------------------------------------
+
+const TEST_ICON = {
+  passed: "check-circle-fill",
+  failed: "x-circle-fill",
+  skipped: "dot-fill",
+  pending: "dot-fill",
+  todo: "dot-fill",
+};
 
 function renderTests() {
   const report = state.test.report;
@@ -155,9 +291,8 @@ function renderTests() {
     for (const t of s.tests || []) {
       const row = document.createElement("div");
       row.className = `test-row ${t.status}`;
-      const icon =
-        { passed: "✓", failed: "✕", skipped: "○", pending: "○", todo: "○" }[t.status] || "·";
-      row.innerHTML = `<span class="icon">${icon}</span><span class="name"></span>`;
+      const icon = TEST_ICON[t.status] || "dot-fill";
+      row.innerHTML = `<svg class="oi"><use href="#oct-${icon}" /></svg><span class="name"></span>`;
       row.querySelector(".name").textContent = t.name || "(unnamed)";
       div.append(row);
       if (t.status === "failed" && t.message) {
@@ -179,9 +314,7 @@ function renderDev() {
   const running = dev.status === "running";
   $("#dev-start").classList.toggle("hidden", running);
   $("#dev-stop").classList.toggle("hidden", !running);
-  const chip = $("#dev-status");
-  chip.textContent = dev.status;
-  chip.className = `status-chip ${running ? "running" : ""}`;
+  statusChip($("#dev-status"), running ? "running" : "stopped");
 
   const urlWrap = $("#dev-url-wrap");
   const preview = $("#dev-preview");
@@ -211,7 +344,7 @@ function renderOutdated() {
     return;
   }
   if (!od.list.length) {
-    wrap.innerHTML = '<div class="empty">All dependencies are up to date. ✓</div>';
+    wrap.innerHTML = '<div class="empty">All dependencies are up to date.</div>';
     return;
   }
   const rows = od.list
@@ -244,7 +377,7 @@ function renderAudit() {
   if (m && (m.total ?? 0) === 0) {
     const s = document.createElement("span");
     s.className = "sev clean";
-    s.textContent = "No known vulnerabilities ✓";
+    s.textContent = "No known vulnerabilities";
     el.append(s);
     return;
   }
@@ -273,6 +406,13 @@ function renderUpdate() {
 
 // ---- SSE ------------------------------------------------------------------
 
+async function refreshSettings() {
+  const s = await api("/api/settings");
+  state.settings = { theme: s.theme || "auto", pinnedScripts: s.pinnedScripts || [] };
+  applyTheme(state.settings.theme);
+  renderPinned();
+}
+
 function applyEvent(e) {
   switch (e.type) {
     case "snapshot":
@@ -289,6 +429,7 @@ function applyEvent(e) {
     case "detection":
       state.detection = e.detection;
       renderProject();
+      refreshSettings();
       break;
     case "lane:start": {
       state.lanes[e.lane] = { id: e.lane, label: e.label, status: "running", output: "" };
@@ -384,18 +525,30 @@ function connect() {
 
 // ---- Wiring ---------------------------------------------------------------
 
-document.querySelectorAll(".lane-btn[data-lane]").forEach((b) => {
+$$(".lane-btn[data-lane]").forEach((b) => {
   b.addEventListener("click", () => api("/api/lane", { id: b.dataset.lane }));
 });
 $("#test-btn").addEventListener("click", () => api("/api/test", {}));
 $("#refresh").addEventListener("click", () => api("/api/refresh", {}));
-$("#scripts").addEventListener("change", (e) => {
-  const name = e.target.value;
-  if (name) api("/api/script", { name });
-  e.target.value = "";
+
+$("#theme-toggle").addEventListener("click", () => {
+  const next = THEME_NEXT[state.settings.theme] || "auto";
+  state.settings.theme = next;
+  applyTheme(next);
+  api("/api/settings", { theme: next });
 });
+
+$("#scripts-toggle").addEventListener("click", (e) => {
+  e.stopPropagation();
+  if ($("#scripts-menu").classList.contains("hidden")) openScriptsMenu();
+  else closeScriptsMenu();
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".menu-wrap")) closeScriptsMenu();
+});
+
 $("#console-fix").addEventListener("click", (e) =>
-  api("/api/fix", { lane: e.target.dataset.lane }),
+  api("/api/fix", { lane: e.currentTarget.dataset.lane }),
 );
 $("#test-fix").addEventListener("click", () => api("/api/fix", { lane: "test" }));
 $("#test-raw-toggle").addEventListener("click", () => $("#test-raw").classList.toggle("hidden"));
@@ -409,9 +562,15 @@ $("#dev-reload").addEventListener("click", () => {
 
 $("#deps-check").addEventListener("click", () => api("/api/deps/outdated", {}));
 $("#deps-audit").addEventListener("click", () => api("/api/deps/audit", {}));
+$$("#deps-scope button").forEach((b) => {
+  b.addEventListener("click", () => {
+    $$("#deps-scope button").forEach((x) => x.classList.toggle("on", x === b));
+  });
+});
 $("#deps-update").addEventListener("click", () =>
-  api("/api/deps/update", { scope: $("#deps-scope").value }),
+  api("/api/deps/update", { scope: $("#deps-scope button.on")?.dataset.scope || "minor" }),
 );
 $("#deps-fix").addEventListener("click", () => api("/api/deps/fix", {}));
 
+refreshSettings();
 connect();

@@ -120,8 +120,17 @@ src/
   server.mjs             http + SSE + static + /api endpoints
   actions.mjs            agent-callable canvas actions
   fix.mjs                "Fix with Copilot" prompt builders
-public/                  index.html · app.js · style.css (themed vanilla UI)
+  settings.mjs           per-project pinned-scripts + theme persistence
+public/                  index.html · app.js · style.css (Primer-styled vanilla UI)
 ```
+
+The toolbar only shows the lanes a project actually supports, the Tests/Dev tabs
+hide when there is nothing to run there, and every `package.json` script is
+available from the **Scripts** menu (check one to pin it to the toolbar). The pinned
+scripts and the theme preference are persisted per project in
+`~/.node-pilot/settings.json` — not in your repository. (iframe `localStorage` is
+unreliable here because each canvas open gets a fresh loopback port, which changes
+the page origin.)
 
 Everything in `src/` is SDK-free and independently runnable with plain Node; only
 `extension.mjs` imports the Copilot SDK.
@@ -146,6 +155,13 @@ After editing the extension, reload it in the Copilot app (the runtime rediscove
   Bun); other runners fall back to raw output.
 - Outdated/audit JSON is parsed reliably for npm (and pnpm); yarn / bun degrade to a
   best-effort summary.
+- **Theme** follows your OS appearance (via `prefers-color-scheme`), repainted with
+  GitHub Primer colors, plus a manual Auto/Light/Dark toggle. The host does not expose
+  its own in-app theme to canvas extensions, so OS appearance is the best automatic
+  signal available.
+- **Tab icon**: the canvas API exposes only a title/status, so a custom tab icon
+  isn't supported. Node Pilot ships an SVG favicon (`public/icon.svg`) as a best-effort
+  fallback in case the host surfaces it.
 
 ## Roadmap
 
