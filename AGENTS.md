@@ -27,8 +27,10 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
     `fix.ts` (prompt builders), `settings.ts` (per-project pinned tasks + theme).
 - `types/copilot-sdk.d.ts` — ambient shim for `@github/copilot-sdk/extension` so `tsc`
   resolves it in CI (the real package only exists inside the Copilot app).
-- `public/` — vanilla HTML/CSS/JS UI (Info / Console / Problems / Tests / Dev /
-  Dependencies tabs),
+- `public/` — vanilla HTML/CSS/JS UI (Info / Preview / Tests / Problems / Dependencies /
+  Console tabs — that's the **default order**; users reorder/hide tabs and toggle
+  auto-run via a gear-launched **Settings** panel, `#tab-settings`, which is not itself
+  a tab in `#tabs`),
   GitHub Primer light/dark theming + inline Octicon sprite (MIT, bundled, no network).
   `public/app.js` stays JS, type-checked via `tsconfig.client.json` (`checkJs`).
   `public/preview-capture.js` is the capture bridge injected into the proxied preview;
@@ -119,7 +121,28 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   self-contained file here and document why.
 - **Settings persist server-side** in `~/.cockpit/settings.json` (keyed by project
   path), NOT in iframe `localStorage` — each canvas open gets a fresh loopback port,
-  changing the origin and wiping `localStorage`. See `src/settings.ts`.
+  changing the origin and wiping `localStorage`. See `src/settings.ts`. The schema
+  carries `theme`, `pinnedTasks`, plus the tab/auto-run prefs: `tabOrder` (string[] of
+  tab ids, or `null` → materialized to the default order), `hiddenTabs` (string[]), and
+  `autoLint`/`autoTest`/`autoDeps` (booleans). `migrate()`/`saveSettings()` sanitize
+  ids against `KNOWN_TABS` and coerce booleans; the client fetches them via
+  `GET /api/settings` (not in `getState()`) and persists patches via `POST /api/settings`.
+  `applyTabLayout()` in `app.js` reorders `#tabs` buttons and `.tab-hidden`-toggles
+  hidden ones (≥1 must stay visible); reorder is HTML5 drag-and-drop in the panel.
+- **Native test watch** (Tests tab Watch switch → `POST /api/test/watch {on}`): a
+  persistent runner process like the dev server, NOT a one-shot. `resolveTestWatch()`
+  (`lanes.ts`) only supports **vitest** (`--watch` + json `--outputFile`, first-class /
+  dogfooded), **jest** (`--watchAll --json --outputFile`) and **node** (`--test --watch`,
+  TAP re-parsed from the lane buffer); mocha/bun/script report `unavailable`. The
+  controller fs-watches the json outputFile (vitest/jest) or debounce-reparses the TAP
+  buffer (node) on each run and emits `test:report` + `test:watch`. A one-shot `runTests`
+  is guarded off while watch is active; `extension.ts onClose` tears the watch down.
+- **Auto-run on load**: when `autoLint`/`autoTest`/`autoDeps` are on, the controller runs
+  those lanes **once per project path** (`_autoRanFor` set, keyed by cwd so a shared
+  process can serve several projects) after the first project detection, only for
+  available lanes (`runAutoTasks()` in `controller.ts`). It sets `_autoRunning` so the
+  `lane:start` events carry `auto: true`; the client then populates results/badges
+  **without** switching the active tab (explicit user runs still switch).
 - **Lane availability**: each `resolve*()` in `lanes.ts` reports `{unavailable}`;
   `laneAvailability(d)` aggregates it onto `detection.availability` so the UI hides
   lanes/tabs that don't apply.

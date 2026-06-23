@@ -272,6 +272,14 @@ export interface Settings {
   // `null` means "no per-project config yet" → fall back to the default tasks.
   pinnedTasks: PinnedTask[] | null;
   theme: string;
+  // Tab UX. `tabOrder` null = use the default order; `hiddenTabs` lists tab ids
+  // the user has hidden. Auto-run-on-load toggles pre-populate results once when
+  // the extension loads.
+  tabOrder: string[] | null;
+  hiddenTabs: string[];
+  autoLint: boolean;
+  autoTest: boolean;
+  autoDeps: boolean;
   // Legacy field kept only so older settings.json files can be migrated.
   pinnedScripts?: string[] | null;
 }
@@ -279,11 +287,21 @@ export interface Settings {
 export interface ResolvedSettings {
   pinnedTasks: PinnedTask[];
   theme: string;
+  tabOrder: string[];
+  hiddenTabs: string[];
+  autoLint: boolean;
+  autoTest: boolean;
+  autoDeps: boolean;
 }
 
 export interface SettingsPatch {
   pinnedTasks?: PinnedTask[];
   theme?: string;
+  tabOrder?: string[];
+  hiddenTabs?: string[];
+  autoLint?: boolean;
+  autoTest?: boolean;
+  autoDeps?: boolean;
 }
 
 // ---- Agent actions --------------------------------------------------------

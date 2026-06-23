@@ -155,6 +155,28 @@ describe("test-report parsers", () => {
     expect(report.suites[0].tests[1].message).toBe("boom");
   });
 
+  it("flags a suite that failed to run with zero failed assertions", () => {
+    const report = parseJestLike({
+      success: false,
+      numTotalTests: 0,
+      numPassedTests: 0,
+      numFailedTests: 0,
+      numFailedTestSuites: 1,
+      testResults: [
+        {
+          name: "broken.test.js",
+          status: "failed",
+          failureMessage: "Cannot find module './missing'",
+          assertionResults: [],
+        },
+      ],
+    });
+    expect(report.ok).toBe(false);
+    expect(report.failed).toBe(1);
+    expect(report.suites[0].tests[0].status).toBe("failed");
+    expect(report.suites[0].tests[0].message).toContain("Cannot find module");
+  });
+
   it("parses TAP output", () => {
     const report = parseTap("ok 1 - works\nnot ok 2 - broken\nok 3 - skip # SKIP later\n");
     expect(report.passed).toBe(1);

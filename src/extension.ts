@@ -80,8 +80,12 @@ const session = await joinSession({
           servers.delete(ctx.instanceId);
           await new Promise<void>((resolve) => entry.server.close(() => resolve()));
         }
-        // Release the TypeScript language server once no canvas is open.
-        if (servers.size === 0) controller.stopTsServer();
+        // Release the TypeScript language server and any watch process once no
+        // canvas is open.
+        if (servers.size === 0) {
+          controller.stopTsServer();
+          controller.stopTestWatch().catch(() => {});
+        }
       },
     }),
   ],

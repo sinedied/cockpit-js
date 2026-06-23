@@ -43,6 +43,39 @@ export function parseJestLike(json: any): TestReport {
   } else {
     tallyFromSuites(report);
   }
+
+  // Surface runner-level failures that produce no failed assertions (suite import
+  // errors, syntax errors, runtime crashes). Vitest/Jest report these via
+  // success/numFailedTestSuites/numRuntimeErrorTestSuites and a per-file failure
+  // message while numFailedTests stays 0 — which would otherwise show green,
+  // especially in watch mode where there is no exit code to correct it.
+  const runnerFailed =
+    json?.success === false ||
+    (json?.numFailedTestSuites || 0) > 0 ||
+    (json?.numRuntimeErrorTestSuites || 0) > 0;
+  if (runnerFailed && report.failed === 0) {
+    let synthesized = false;
+    for (let i = 0; i < results.length; i++) {
+      const file = results[i];
+      const suite = report.suites[i];
+      const failedFile = file?.status === "failed" || Boolean(file?.failureMessage);
+      const hasFailedAssertion = suite?.tests.some((t) => t.status === "failed");
+      if (suite && failedFile && !hasFailedAssertion) {
+        suite.tests.push({
+          name: "(suite failed to run)",
+          status: "failed",
+          message: (file.failureMessage || file.message || "Test suite failed to run").trim(),
+        });
+        report.failed++;
+        report.total++;
+        synthesized = true;
+      }
+    }
+    if (!synthesized) {
+      report.failed++;
+      report.total++;
+    }
+  }
   report.ok = report.failed === 0;
   return report;
 }

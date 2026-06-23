@@ -11,10 +11,18 @@ const strip = (s) => (s || "").replace(ANSI, "");
 const state = {
   detection: null,
   lanes: {},
-  test: { report: null },
+  test: { report: null, watch: false },
   dev: { status: "stopped", url: null, output: "" },
   deps: { outdated: null, audit: null, update: null },
-  settings: { theme: "auto", pinnedTasks: [] },
+  settings: {
+    theme: "auto",
+    pinnedTasks: [],
+    tabOrder: null,
+    hiddenTabs: [],
+    autoLint: false,
+    autoTest: false,
+    autoDeps: false,
+  },
   stats: null,
   tsLs: {
     status: "stopped",
@@ -98,7 +106,59 @@ function applyTheme(theme) {
 
 const tabBtns = () => $$("#tabs button[data-tab]");
 
+// Default tab order + per-tab metadata (icon + label), shared by the Settings
+// panel and applyTabLayout(). The Dev tab is now "preview".
+const DEFAULT_TAB_ORDER = ["info", "preview", "tests", "problems", "deps", "console"];
+const TAB_META = {
+  info: { label: "Info", icon: "oct-info" },
+  preview: { label: "Preview", icon: "oct-eye" },
+  tests: { label: "Tests", icon: "oct-beaker" },
+  problems: { label: "Problems", icon: "oct-alert" },
+  deps: { label: "Dependencies", icon: "oct-package" },
+  console: { label: "Console", icon: "oct-terminal" },
+};
+
+// settings.tabOrder may be partial/stale; keep only known ids and append any
+// missing ones in their default position so new tabs still appear.
+function effectiveTabOrder() {
+  const saved = Array.isArray(state.settings.tabOrder) ? state.settings.tabOrder : [];
+  const order = saved.filter((t) => DEFAULT_TAB_ORDER.includes(t));
+  for (const t of DEFAULT_TAB_ORDER) if (!order.includes(t)) order.push(t);
+  return order;
+}
+
+// Reorder the tab buttons per settings and hide user-hidden tabs (.tab-hidden),
+// keeping the More wrapper last. If the active tab ends up hidden, fall back to
+// the first visible tab (unless the Settings panel is open).
+function applyTabLayout() {
+  const bar = $("#tabs");
+  const moreWrap = $("#tab-more-wrap");
+  if (!bar || !moreWrap) return;
+  const hidden = new Set(state.settings.hiddenTabs || []);
+  for (const id of effectiveTabOrder()) {
+    const btn = bar.querySelector(`button[data-tab="${id}"]`);
+    if (!btn) continue;
+    btn.classList.toggle("tab-hidden", hidden.has(id));
+    bar.insertBefore(btn, moreWrap);
+  }
+  bar.append(moreWrap);
+  const gearOpen = $("#settings-toggle")?.classList.contains("active");
+  const active = bar.querySelector("button.active");
+  if (
+    !gearOpen &&
+    active &&
+    (active.classList.contains("tab-hidden") || active.classList.contains("hidden"))
+  ) {
+    const first = tabBtns().find(
+      (b) => !b.classList.contains("tab-hidden") && !b.classList.contains("hidden"),
+    );
+    if (first) showTab(first.dataset.tab);
+  }
+  recomputeTabOverflow();
+}
+
 function showTab(name) {
+  $("#settings-toggle")?.classList.remove("active");
   for (const b of tabBtns()) b.classList.toggle("active", b.dataset.tab === name);
   for (const p of $$(".tab-panel")) p.classList.toggle("active", p.id === `tab-${name}`);
   if (name === "problems") requestDiagnostics();
@@ -123,7 +183,9 @@ function recomputeTabOverflow() {
   const moreWrap = $("#tab-more-wrap");
   if (!bar || !moreWrap) return;
   const all = tabBtns();
-  const avail = all.filter((b) => !b.classList.contains("hidden"));
+  const avail = all.filter(
+    (b) => !b.classList.contains("hidden") && !b.classList.contains("tab-hidden"),
+  );
   // Reset to the widest layout, then measure.
   for (const b of all) b.classList.remove("overflow");
   moreWrap.classList.add("hidden");
@@ -170,15 +232,29 @@ function tabLabelOf(b) {
     .trim();
 }
 
-// Mirror the Problems error/warning badge onto the More button when the Problems
-// tab is hidden inside the overflow menu, so problems stay visible when collapsed.
+// Map an overflowable tab button to its (visible) badge element, if any.
+function tabBadgeOf(btn) {
+  const sel = { "tabbtn-problems": "#problems-badge", "tabbtn-tests": "#tests-badge" }[btn?.id];
+  if (!sel) return null;
+  const el = $(sel);
+  return el && !el.classList.contains("hidden") ? el : null;
+}
+
+// Mirror the most severe Problems/Tests badge onto the More button when those
+// tabs are collapsed into the overflow menu, so issues stay visible when hidden.
 function syncTabMoreBadge() {
   const badge = $("#tab-more-badge");
-  const src = $("#problems-badge");
-  const problems = $("#tabbtn-problems");
-  if (overflowTabs.includes(problems) && src && !src.classList.contains("hidden")) {
-    badge.textContent = src.textContent;
-    badge.className = src.className;
+  let chosen = null;
+  for (const b of overflowTabs) {
+    const el = tabBadgeOf(b);
+    if (!el) continue;
+    if (!chosen || (el.classList.contains("error") && !chosen.classList.contains("error"))) {
+      chosen = el;
+    }
+  }
+  if (chosen) {
+    badge.textContent = chosen.textContent;
+    badge.className = chosen.className;
   } else {
     badge.textContent = "";
     badge.className = "tab-badge hidden";
@@ -198,14 +274,12 @@ function buildTabMoreMenu() {
     const href = b.querySelector("use")?.getAttribute("href") || "#oct-dot-fill";
     item.innerHTML = `<svg class="oi" aria-hidden="true"><use href="${href}" /></svg><span class="more-menu-name"></span>`;
     item.querySelector(".more-menu-name").textContent = tabLabelOf(b);
-    if (b.id === "tabbtn-problems") {
-      const src = $("#problems-badge");
-      if (src && !src.classList.contains("hidden")) {
-        const bd = document.createElement("span");
-        bd.className = src.className;
-        bd.textContent = src.textContent;
-        item.append(bd);
-      }
+    const src = tabBadgeOf(b);
+    if (src) {
+      const bd = document.createElement("span");
+      bd.className = src.className;
+      bd.textContent = src.textContent;
+      item.append(bd);
     }
     item.addEventListener("click", () => {
       showTab(b.dataset.tab);
@@ -493,15 +567,21 @@ async function loadStats(rows, detection) {
   );
 }
 
-// Hide the Tests / Dev / Problems tabs when the project has nothing to run there.
+// Hide the Tests / Preview / Problems tabs when the project has nothing to run there.
 function renderTabs() {
   const a = state.detection?.availability || {};
   const hasProject = !!state.detection?.hasProject;
   $("#tabbtn-tests").classList.toggle("hidden", hasProject && a.test === false);
-  $("#tabbtn-dev").classList.toggle("hidden", hasProject && a.dev === false);
+  $("#tabbtn-preview").classList.toggle("hidden", hasProject && a.dev === false);
   $("#tabbtn-problems").classList.toggle("hidden", hasProject && a.diagnostics === false);
   const active = $(".tabs button.active");
-  if (active?.classList.contains("hidden")) showTab("console");
+  if (active?.classList.contains("hidden")) {
+    const first =
+      tabBtns().find(
+        (b) => !b.classList.contains("tab-hidden") && !b.classList.contains("hidden"),
+      ) || $('[data-tab="console"]');
+    if (first) showTab(first.dataset.tab);
+  }
   recomputeTabOverflow();
 }
 
@@ -782,6 +862,25 @@ function fmtDuration(ms) {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
 }
 
+// Tab badge: red failed count when the last run had failures, else hidden.
+function setTestsBadge(failed) {
+  const badge = $("#tests-badge");
+  if (!badge) return;
+  if (failed > 0) {
+    badge.textContent = String(failed);
+    badge.className = "tab-badge error";
+  } else {
+    badge.textContent = "";
+    badge.className = "tab-badge hidden";
+  }
+}
+
+// Reflect the backend watch state onto the Tests tab Watch switch.
+function syncTestWatchSwitch() {
+  const cb = $("#test-watch-check");
+  if (cb) cb.checked = !!state.test?.watch;
+}
+
 function renderTests() {
   const report = state.test.report;
   const empty = $("#tests-empty");
@@ -794,6 +893,8 @@ function renderTests() {
     }
     empty.classList.remove("hidden");
     body.classList.add("hidden");
+    setTestsBadge(0);
+    recomputeTabOverflow();
     return;
   }
   empty.classList.add("hidden");
@@ -813,6 +914,7 @@ function renderTests() {
   if (report.skipped) chips.append(mk("skip", `${report.skipped} skipped`));
 
   $("#test-fix").classList.toggle("hidden", report.failed === 0);
+  setTestsBadge(report.failed);
 
   const suites = $("#test-suites");
   suites.innerHTML = "";
@@ -872,6 +974,7 @@ function renderTests() {
     suites.append(det);
   }
   $("#test-raw").textContent = strip(state.lanes.test?.output || "");
+  recomputeTabOverflow();
 }
 
 // ---- Problems (TypeScript language-server diagnostics) --------------------
@@ -1219,9 +1322,30 @@ function renderUpdate() {
 
 async function refreshSettings() {
   const s = await api("/api/settings");
-  state.settings = { theme: s.theme || "auto", pinnedTasks: s.pinnedTasks || [] };
+  applySettings(s);
+}
+
+// Normalize a server settings payload into state and re-render anything driven
+// by it (theme, pinned tasks, tab layout, the Settings panel).
+function applySettings(s) {
+  state.settings = {
+    theme: s.theme || "auto",
+    pinnedTasks: s.pinnedTasks || [],
+    tabOrder: Array.isArray(s.tabOrder) ? s.tabOrder : null,
+    hiddenTabs: Array.isArray(s.hiddenTabs) ? s.hiddenTabs : [],
+    autoLint: !!s.autoLint,
+    autoTest: !!s.autoTest,
+    autoDeps: !!s.autoDeps,
+  };
   applyTheme(state.settings.theme);
   renderPinned();
+  applyTabLayout();
+  renderSettingsPanel();
+}
+
+async function persistSettings(patch) {
+  const s = await api("/api/settings", patch);
+  if (s && typeof s === "object") applySettings(s);
 }
 
 function applyEvent(e) {
@@ -1231,6 +1355,7 @@ function applyEvent(e) {
       state.lanes = e.state.lanes || {};
       renderProject();
       renderTests();
+      syncTestWatchSwitch();
       renderProblems();
       renderDev();
       renderOutdated();
@@ -1249,9 +1374,9 @@ function applyEvent(e) {
       state.lanes[e.lane] = { id: e.lane, label: e.label, status: "running", output: "" };
       if (isConsoleLane(e.lane)) {
         setConsoleLane(e.lane);
-        showTab("console");
+        if (!e.auto) showTab("console");
       } else if (e.lane === "test") {
-        showTab("tests");
+        if (!e.auto) showTab("tests");
         renderTests();
       }
       renderConsoleStatus();
@@ -1282,6 +1407,10 @@ function applyEvent(e) {
     case "test:report":
       state.test.report = e.report;
       renderTests();
+      break;
+    case "test:watch":
+      state.test.watch = !!e.on;
+      syncTestWatchSwitch();
       break;
     case "ts:status":
       state.tsLs = {
@@ -1403,7 +1532,17 @@ $("#console-fix").addEventListener("click", (e) =>
   api("/api/fix", { lane: e.currentTarget.dataset.lane }),
 );
 $("#test-fix").addEventListener("click", () => api("/api/fix", { lane: "test" }));
-$("#test-raw-toggle").addEventListener("click", () => $("#test-raw").classList.toggle("hidden"));
+$("#test-logs-check").addEventListener("change", (e) => {
+  $("#test-raw").classList.toggle("hidden", !e.currentTarget.checked);
+});
+$("#test-watch-check").addEventListener("change", async (e) => {
+  const on = e.currentTarget.checked;
+  const res = await api("/api/test/watch", { on });
+  if (res && res.ok === false) {
+    e.currentTarget.checked = !on;
+    if (res.reason) toast(res.reason);
+  }
+});
 
 $("#problems-refresh").addEventListener("click", () => requestDiagnostics());
 $("#problems-fix").addEventListener("click", () => api("/api/diagnostics/fix", { all: true }));
@@ -1727,8 +1866,129 @@ $("#deps-update").addEventListener("click", () =>
 );
 $("#deps-fix").addEventListener("click", () => api("/api/deps/fix", {}));
 
-refreshSettings();
-connect();
+// ---- Settings panel -------------------------------------------------------
+
+// The Settings panel is a gear-launched pseudo-tab (not part of #tabs). Opening
+// it deactivates every real tab; clicking any real tab (or the gear again)
+// returns to normal.
+function openSettings() {
+  closeScriptsMenu();
+  closePinnedMore();
+  closeTabMore();
+  for (const b of tabBtns()) b.classList.remove("active");
+  $("#tab-more")?.classList.remove("active");
+  for (const p of $$(".tab-panel")) p.classList.toggle("active", p.id === "tab-settings");
+  $("#settings-toggle").classList.add("active");
+  renderSettingsPanel();
+  recomputeTabOverflow();
+}
+
+function firstVisibleTab() {
+  return (
+    tabBtns().find((b) => !b.classList.contains("tab-hidden") && !b.classList.contains("hidden")) ||
+    tabBtns()[0]
+  );
+}
+
+$("#settings-toggle").addEventListener("click", () => {
+  if ($("#settings-toggle").classList.contains("active")) {
+    const first = firstVisibleTab();
+    if (first) showTab(first.dataset.tab);
+  } else {
+    openSettings();
+  }
+});
+
+// Rebuild the Tabs list (drag handle + icon/label + visibility switch) and sync
+// the On-load auto-run checkboxes from current settings.
+function renderSettingsPanel() {
+  const al = $("#set-autolint");
+  if (al) al.checked = !!state.settings.autoLint;
+  const at = $("#set-autotest");
+  if (at) at.checked = !!state.settings.autoTest;
+  const ad = $("#set-autodeps");
+  if (ad) ad.checked = !!state.settings.autoDeps;
+
+  const list = $("#settings-tabs");
+  if (!list) return;
+  list.innerHTML = "";
+  const hidden = new Set(state.settings.hiddenTabs || []);
+  for (const id of effectiveTabOrder()) {
+    const meta = TAB_META[id];
+    if (!meta) continue;
+    const row = document.createElement("div");
+    row.className = "settings-tab-row";
+    row.draggable = true;
+    row.dataset.tab = id;
+    row.innerHTML =
+      `<svg class="oi drag-handle" aria-hidden="true"><use href="#oct-grabber" /></svg>` +
+      `<svg class="oi settings-tab-icon" aria-hidden="true"><use href="#${meta.icon}" /></svg>` +
+      `<span class="settings-tab-name"></span><span class="grow"></span>` +
+      `<label class="switch"><input type="checkbox" ${hidden.has(id) ? "" : "checked"} />` +
+      `<span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></label>`;
+    row.querySelector(".settings-tab-name").textContent = meta.label;
+    const cb = /** @type {HTMLInputElement} */ (row.querySelector('input[type="checkbox"]'));
+    cb.addEventListener("change", () => toggleTabHidden(id, !cb.checked));
+    wireTabRowDnD(row, list);
+    list.append(row);
+  }
+}
+
+async function toggleTabHidden(id, hide) {
+  const hidden = new Set(state.settings.hiddenTabs || []);
+  if (hide) hidden.add(id);
+  else hidden.delete(id);
+  if (DEFAULT_TAB_ORDER.filter((t) => !hidden.has(t)).length < 1) {
+    toast("At least one tab must stay visible.");
+    renderSettingsPanel();
+    return;
+  }
+  await persistSettings({ hiddenTabs: [...hidden] });
+}
+
+// HTML5 drag-and-drop reorder (works in WKWebView). On dragover we reposition
+// the dragged row live; on dragend we commit the new order to settings.
+function wireTabRowDnD(row, list) {
+  row.addEventListener("dragstart", (e) => {
+    row.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try {
+      e.dataTransfer.setData("text/plain", row.dataset.tab);
+    } catch {}
+  });
+  row.addEventListener("dragend", () => {
+    row.classList.remove("dragging");
+    commitTabOrder(list);
+  });
+  row.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    const dragging = list.querySelector(".settings-tab-row.dragging");
+    if (!dragging || dragging === row) return;
+    const rect = row.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    list.insertBefore(dragging, after ? row.nextSibling : row);
+  });
+}
+
+async function commitTabOrder(list) {
+  const order = [...list.querySelectorAll(".settings-tab-row")].map((r) => r.dataset.tab);
+  await persistSettings({ tabOrder: order });
+}
+
+$("#set-autolint").addEventListener("change", (e) =>
+  persistSettings({ autoLint: e.currentTarget.checked }),
+);
+$("#set-autotest").addEventListener("change", (e) =>
+  persistSettings({ autoTest: e.currentTarget.checked }),
+);
+$("#set-autodeps").addEventListener("change", (e) =>
+  persistSettings({ autoDeps: e.currentTarget.checked }),
+);
+
+// Apply persisted tab order/visibility before opening the SSE stream so a custom
+// layout doesn't briefly flash in the default order on first paint. connect()
+// still runs even if the settings fetch fails.
+refreshSettings().finally(connect);
 
 // Keep the tab bar and toolbar responsive: recompute their overflow menus
 // whenever the panel is resized, plus once on initial layout.

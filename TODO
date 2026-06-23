@@ -13,23 +13,36 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] new AGENTS.md rule: ensure UI is responsive and usable at small widths
   * call /rubber-duck after each new set of changes after you're done
   * tabs: ... for extra tabs not fitting in the tab bar
+- [x] integrated browser: improve integration
+ + screen capture + playwright integration
 
 - [ ] test: watch switch, logs switch instead of raw output (like dev tab)
+
+- [ ] dev => preview tab
+
+- [ ] add status pills on tabs (test, problems)
+
+- [ ] settings tab:
+  - [ ] auto lint / test on load
+  - [ ] tab order and visibility (change default)
+
+- [ ] language server TS
+    * lint errors
+
+- [ ] debugger? + usuable by agent
+
+- [ ] Rayfin integration (rayfin tab)
 
 
 - [ ] no disctinction in pinned script, default pinned scripts can be unpinned too
   * improve: show which scripts it's aliased to
   * order same as package.json
 
-- [ ] language server TS
-    * lint errors
+- [ ] skill readme/prep release
 
-- [ ] integrated browser: improve integration
- + screen capture + playwright integration
 
-- [ ] debugger? + usuable by agent
 
-- [ ] Rayfin integration (rayfin tab)
+
 
 
 - [ ] add skills (README for example)

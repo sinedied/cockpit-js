@@ -111,15 +111,18 @@ export function resolveDev(d: ProjectDetection): LaneResult {
 export interface TestOptions {
   pattern?: string;
   outputFile?: string;
+  watch?: boolean;
 }
 
 // Returns { label, argv, parser, outputFile? }. `parser` selects the report
-// parser in test-report.ts.
+// parser in test-report.ts. With `watch`, returns a persistent watch-mode
+// command (see resolveTestWatch) for the runners that support it.
 export function resolveTest(
   d: ProjectDetection,
-  { pattern, outputFile }: TestOptions = {},
+  { pattern, outputFile, watch }: TestOptions = {},
 ): LaneResult {
   const pat = pattern ? [pattern] : [];
+  if (watch) return resolveTestWatch(d, pat, outputFile);
   switch (d.testRunner) {
     case "vitest":
       return {
@@ -164,6 +167,53 @@ export function resolveTest(
       if (hasScript(d, "test"))
         return { label: `${d.pm} run test`, parser: "text", argv: runScript(d.pm, "test", pat) };
       return { unavailable: true, reason: "No test runner or test script detected." };
+  }
+}
+
+// Native watch-mode command per runner. vitest/jest stream a JSON report to
+// `outputFile` on every run (parsed via fs.watch); `node --test --watch` reprints
+// a full TAP document each run (parsed from the streamed output). Other runners
+// don't have a reliable machine-readable watch report, so watch is unavailable.
+function resolveTestWatch(d: ProjectDetection, pat: string[], outputFile?: string): LaneResult {
+  switch (d.testRunner) {
+    case "vitest":
+      return {
+        label: "vitest --watch",
+        parser: "jest",
+        outputFile,
+        argv: exec(d.pm, [
+          "vitest",
+          "--watch",
+          ...pat,
+          "--reporter=default",
+          "--reporter=json",
+          ...(outputFile ? ["--outputFile", outputFile] : []),
+        ]),
+      };
+    case "jest":
+      return {
+        label: "jest --watchAll",
+        parser: "jest",
+        outputFile,
+        argv: exec(d.pm, [
+          "jest",
+          "--watchAll",
+          ...pat,
+          "--json",
+          ...(outputFile ? ["--outputFile", outputFile] : []),
+        ]),
+      };
+    case "node":
+      return {
+        label: "node --test --watch",
+        parser: "tap",
+        argv: ["node", "--test", "--watch", "--test-reporter=tap", ...pat],
+      };
+    default:
+      return {
+        unavailable: true,
+        reason: "Watch mode needs vitest, jest or node --test.",
+      };
   }
 }
 

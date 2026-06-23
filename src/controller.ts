@@ -20,7 +20,7 @@ import { parseJestLike, parseTap, parseTextCounts } from "./test-report.ts";
 import { pushCapped, extractUrl, isPortInUse } from "./util.ts";
 import { buildFixPrompt, buildTestFixPrompt, buildDiagnosticFixPrompt } from "./fix.ts";
 import { TsServerClient, resolveTsserverPath } from "./ts-server.ts";
-import { loadSettings, saveSettings } from "./settings.ts";
+import { loadSettings, saveSettings, KNOWN_TABS } from "./settings.ts";
 import { computeStats } from "./info.ts";
 import * as deps from "./deps.ts";
 import type { SafeUpdateOptions, SafeUpdateResult } from "./deps.ts";
@@ -33,6 +33,7 @@ import type {
   Diagnostic,
   FixContextEntry,
   LaneState,
+  ProcessHandle,
   ProjectStats,
   ResolvedSettings,
   SettingsPatch,
@@ -84,6 +85,20 @@ interface LaneRunResult {
   exitCode?: number;
 }
 
+// Live test-watch session. For file-based runners (vitest/jest) the JSON report
+// is read from `outputFile` whenever the temp dir changes; for streaming runners
+// (node --test) the report is re-parsed from the lane output buffer on settle.
+interface TestWatchSession {
+  handle: ProcessHandle;
+  parser: string;
+  label: string;
+  outputFile: string | null;
+  tmpDir: string | null;
+  fileWatcher: FSWatcher | null;
+  debounce: NodeJS.Timeout | null;
+  retries: number;
+}
+
 export class Controller {
   cwd: string;
   sendToChat: (prompt: string) => Promise<void> | void;
@@ -91,7 +106,7 @@ export class Controller {
   events: EventEmitter;
   detection: Detection | null;
   lanes: Record<string, LaneState>;
-  test: { report: TestReport | null };
+  test: { report: TestReport | null; watch: boolean };
   dev: DevState;
   deps: DepsState;
   fixContext: Record<string, FixContextEntry>;
@@ -103,6 +118,9 @@ export class Controller {
   _tsRefreshTimer: NodeJS.Timeout | null;
   _tsRestartTimer: NodeJS.Timeout | null;
   _tsIdleTimer: NodeJS.Timeout | null;
+  _testWatch: TestWatchSession | null;
+  _autoRanFor: Set<string>;
+  _autoRunning: boolean;
 
   constructor(cwd: string, { sendToChat, sendImageToChat }: ControllerOptions = {}) {
     this.cwd = cwd;
@@ -113,7 +131,7 @@ export class Controller {
     this.detection = null;
     this.lanes = {};
     for (const id of ONE_SHOT_LANES) this.lanes[id] = this.freshLane(id);
-    this.test = { report: null };
+    this.test = { report: null, watch: false };
     this.dev = { status: "stopped", url: null, port: null, output: [], pid: null, _handle: null };
     this.deps = { outdated: null, audit: null, update: null };
     this.fixContext = {}; // lane -> last failure { command, output, exitCode, report }
@@ -125,6 +143,9 @@ export class Controller {
     this._tsRefreshTimer = null;
     this._tsRestartTimer = null;
     this._tsIdleTimer = null;
+    this._testWatch = null;
+    this._autoRanFor = new Set();
+    this._autoRunning = false;
   }
 
   freshTsLs(): TsLsState {
@@ -163,6 +184,12 @@ export class Controller {
     this.invalidateStats();
     if (this.detection.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
+    // Fire the configured on-load tasks once per project path, after the first
+    // successful project detection (a shared process can serve several projects).
+    if (!this._autoRanFor.has(this.cwd) && this.detection.hasProject) {
+      this._autoRanFor.add(this.cwd);
+      this.runAutoTasks().catch((e) => this.log(String(e), "error"));
+    }
     return this.detection;
   }
 
@@ -219,16 +246,37 @@ export class Controller {
     // We never write on a read, so the project stays on "defaults" (and picks up
     // newly-available lanes after re-detection) until the user pins/unpins.
     const pinnedTasks = s.pinnedTasks ?? defaultPinnedTasks(this.detection);
-    return { theme: s.theme || "auto", pinnedTasks };
+    return {
+      theme: s.theme || "auto",
+      pinnedTasks,
+      tabOrder: s.tabOrder ?? [...KNOWN_TABS],
+      hiddenTabs: s.hiddenTabs,
+      autoLint: s.autoLint,
+      autoTest: s.autoTest,
+      autoDeps: s.autoDeps,
+    };
   }
 
   async setSettings(patch: SettingsPatch = {}): Promise<ResolvedSettings> {
     const clean: SettingsPatch = {};
     if (typeof patch.theme === "string") clean.theme = patch.theme;
     if (Array.isArray(patch.pinnedTasks)) clean.pinnedTasks = patch.pinnedTasks;
+    if (Array.isArray(patch.tabOrder)) clean.tabOrder = patch.tabOrder;
+    if (Array.isArray(patch.hiddenTabs)) clean.hiddenTabs = patch.hiddenTabs;
+    if (typeof patch.autoLint === "boolean") clean.autoLint = patch.autoLint;
+    if (typeof patch.autoTest === "boolean") clean.autoTest = patch.autoTest;
+    if (typeof patch.autoDeps === "boolean") clean.autoDeps = patch.autoDeps;
     const s = await saveSettings(this.cwd, clean);
     const pinnedTasks = s.pinnedTasks ?? defaultPinnedTasks(this.detection);
-    return { theme: s.theme || "auto", pinnedTasks };
+    return {
+      theme: s.theme || "auto",
+      pinnedTasks,
+      tabOrder: s.tabOrder ?? [...KNOWN_TABS],
+      hiddenTabs: s.hiddenTabs,
+      autoLint: s.autoLint,
+      autoTest: s.autoTest,
+      autoDeps: s.autoDeps,
+    };
   }
 
   getState() {
@@ -266,7 +314,7 @@ export class Controller {
     lane.output = [];
     lane.startedAt = Date.now();
     lane.endedAt = null;
-    this.broadcast({ type: "lane:start", lane: id, label: cmd.label });
+    this.broadcast({ type: "lane:start", lane: id, label: cmd.label, auto: this._autoRunning });
 
     const res = await run(cmd.argv, {
       cwd: this.cwd,
@@ -297,6 +345,7 @@ export class Controller {
   ): Promise<{ ok: boolean; reason?: string; report?: TestReport | null }> {
     const d = this.detection;
     if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
+    if (this._testWatch) return { ok: false, reason: "Watch mode is active." };
     const lane = this.lanes.test;
     if (lane.status === "running") return { ok: false, reason: "Tests are already running." };
 
@@ -323,7 +372,12 @@ export class Controller {
     lane.startedAt = Date.now();
     lane.endedAt = null;
     this.test.report = null;
-    this.broadcast({ type: "lane:start", lane: "test", label: resolved.label });
+    this.broadcast({
+      type: "lane:start",
+      lane: "test",
+      label: resolved.label,
+      auto: this._autoRunning,
+    });
 
     const res = await run(resolved.argv, {
       cwd: this.cwd,
@@ -366,6 +420,231 @@ export class Controller {
     this.broadcast({ type: "test:report", report });
     this.broadcast({ type: "lane:end", lane: "test", exitCode: res.code, status: lane.status });
     return { ok: passed, report };
+  }
+
+  // ---- Native test watch mode ---------------------------------------------
+
+  // Toggle the persistent watch process on/off (POST /api/test/watch).
+  async setTestWatch(on: boolean): Promise<{ ok: boolean; reason?: string }> {
+    return on ? this.startTestWatch() : this.stopTestWatch();
+  }
+
+  // Start the runner's native watch process. vitest/jest stream a JSON report to
+  // a temp file (read via fs.watch); node --test reprints TAP (parsed on settle).
+  async startTestWatch(opts: TestOptions = {}): Promise<{ ok: boolean; reason?: string }> {
+    const d = this.detection;
+    if (!d?.hasProject) return { ok: false, reason: "No Node.js project detected." };
+    if (this._testWatch) return { ok: true };
+    const lane = this.lanes.test;
+    if (lane.status === "running") return { ok: false, reason: "Tests are already running." };
+
+    const probe = resolveTest(d, { ...opts, watch: true });
+    if (probe.unavailable) {
+      this.log(`watch: ${probe.reason}`, "warning");
+      return { ok: false, reason: probe.reason };
+    }
+    let tmpDir: string | null = null;
+    let outputFile: string | null = null;
+    if (probe.parser === "jest") {
+      tmpDir = await mkdtemp(path.join(os.tmpdir(), "cockpit-watch-"));
+      outputFile = path.join(tmpDir, "results.json");
+    }
+    const resolved = outputFile ? resolveTest(d, { ...opts, watch: true, outputFile }) : probe;
+    if (resolved.unavailable || !resolved.argv) {
+      if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: resolved.reason || "Watch mode unavailable." };
+    }
+
+    lane.status = "running";
+    lane.label = resolved.label;
+    lane.output = [];
+    lane.startedAt = Date.now();
+    lane.endedAt = null;
+    this.test.report = null;
+    this.test.watch = true;
+    this.broadcast({ type: "lane:start", lane: "test", label: resolved.label });
+    this.broadcast({ type: "test:watch", on: true });
+
+    const handle = start(resolved.argv, {
+      cwd: this.cwd,
+      onData: (chunk) => {
+        pushCapped(lane.output, chunk);
+        this.broadcast({ type: "lane:data", lane: "test", chunk });
+        if (!outputFile) this.scheduleWatchReparse();
+      },
+    });
+
+    let fileWatcher: FSWatcher | null = null;
+    if (tmpDir) {
+      // The report file may not exist until the first run finishes; watch the
+      // dedicated temp dir and read the file tolerantly on each change.
+      try {
+        fileWatcher = fsWatch(tmpDir, () => this.scheduleWatchFileRead());
+      } catch {
+        fileWatcher = null;
+      }
+    }
+
+    this._testWatch = {
+      handle,
+      parser: resolved.parser || "text",
+      label: resolved.label || "tests",
+      outputFile,
+      tmpDir,
+      fileWatcher,
+      debounce: null,
+      retries: 0,
+    };
+
+    handle.child.on("close", () => this.finalizeWatchStopped());
+    return { ok: true };
+  }
+
+  async stopTestWatch(): Promise<{ ok: boolean }> {
+    const w = this._testWatch;
+    if (!w) {
+      if (this.test.watch) {
+        this.test.watch = false;
+        this.broadcast({ type: "test:watch", on: false });
+      }
+      return { ok: true };
+    }
+    this._testWatch = null;
+    if (w.debounce) clearTimeout(w.debounce);
+    if (w.fileWatcher) {
+      try {
+        w.fileWatcher.close();
+      } catch {}
+    }
+    await w.handle.stop();
+    if (w.tmpDir) await rm(w.tmpDir, { recursive: true, force: true }).catch(() => {});
+    this.settleWatchLane();
+    this.test.watch = false;
+    this.broadcast({ type: "test:watch", on: false });
+    return { ok: true };
+  }
+
+  // The watch process exited on its own (crash / external stop): tear down state.
+  private finalizeWatchStopped(): void {
+    const w = this._testWatch;
+    if (!w) return;
+    this._testWatch = null;
+    if (w.debounce) clearTimeout(w.debounce);
+    if (w.fileWatcher) {
+      try {
+        w.fileWatcher.close();
+      } catch {}
+    }
+    if (w.tmpDir) rm(w.tmpDir, { recursive: true, force: true }).catch(() => {});
+    this.settleWatchLane();
+    this.test.watch = false;
+    this.broadcast({ type: "test:watch", on: false });
+  }
+
+  // Move the test lane out of the perpetual "running" state once watch ends.
+  private settleWatchLane(): void {
+    const lane = this.lanes.test;
+    if (lane.status !== "running") return;
+    lane.status = this.test.report
+      ? this.test.report.ok && this.test.report.failed === 0
+        ? "passed"
+        : "failed"
+      : "idle";
+    lane.endedAt = Date.now();
+    this.broadcast({
+      type: "lane:end",
+      lane: "test",
+      exitCode: lane.status === "failed" ? 1 : 0,
+      status: lane.status,
+    });
+  }
+
+  private scheduleWatchFileRead(): void {
+    const w = this._testWatch;
+    if (!w?.outputFile) return;
+    if (w.debounce) clearTimeout(w.debounce);
+    w.retries = 0;
+    w.debounce = setTimeout(() => this.readWatchReport(), 250);
+  }
+
+  private async readWatchReport(): Promise<void> {
+    const w = this._testWatch;
+    if (!w?.outputFile) return;
+    try {
+      const json = JSON.parse(await readFile(w.outputFile, "utf8"));
+      w.retries = 0;
+      this.applyWatchReport(parseJestLike(json));
+    } catch {
+      // Partial write or report not ready. fs.watch may not fire again for this
+      // run (the change event can arrive mid-truncation), so retry a few times
+      // instead of relying solely on a later event, which could leave a stale badge.
+      if (w.retries < 8) {
+        w.retries++;
+        if (w.debounce) clearTimeout(w.debounce);
+        w.debounce = setTimeout(() => this.readWatchReport(), 150);
+      }
+    }
+  }
+
+  private scheduleWatchReparse(): void {
+    const w = this._testWatch;
+    if (!w || w.outputFile) return;
+    if (w.debounce) clearTimeout(w.debounce);
+    w.debounce = setTimeout(() => {
+      const buf = this.lanes.test.output.join("");
+      // node --test --watch reprints a full TAP document per run; parse the last.
+      const idx = buf.lastIndexOf("TAP version");
+      const slice = idx >= 0 ? buf.slice(idx) : buf;
+      // Only apply once the run's TAP plan line (`1..N`) is present, so a
+      // truncated/partial reprint can't under-count and flip the badge falsely.
+      if (!/^\s*\d+\.\.\d+/m.test(slice)) return;
+      const report = w.parser === "tap" ? parseTap(slice) : parseTextCounts(slice);
+      if (report.total > 0 || report.failed > 0) this.applyWatchReport(report);
+    }, 500);
+  }
+
+  private applyWatchReport(report: TestReport): void {
+    const lane = this.lanes.test;
+    this.test.report = report;
+    lane.endedAt = Date.now();
+    const passed = report.ok && report.failed === 0;
+    lane.status = passed ? "passed" : "failed";
+    if (!passed) {
+      this.fixContext.test = {
+        command: lane.label || "tests",
+        output: lane.output.join(""),
+        exitCode: 1,
+        report,
+      };
+    }
+    this.broadcast({ type: "test:report", report });
+    this.broadcast({
+      type: "lane:end",
+      lane: "test",
+      exitCode: passed ? 0 : 1,
+      status: lane.status,
+    });
+  }
+
+  // ---- Auto-run on load ----------------------------------------------------
+
+  // Run the user's configured on-load tasks once, for available lanes only.
+  private async runAutoTasks(): Promise<void> {
+    const d = this.detection;
+    if (!d?.hasProject) return;
+    const s = await loadSettings(this.cwd);
+    const a = d.availability;
+    this._autoRunning = true;
+    try {
+      if (s.autoLint && a?.lint !== false) await this.runLane("lint").catch(() => {});
+      if (s.autoTest && a?.test !== false) await this.runTests().catch(() => {});
+      if (s.autoDeps) {
+        await this.listOutdated().catch(() => {});
+        await this.runAudit().catch(() => {});
+      }
+    } finally {
+      this._autoRunning = false;
+    }
   }
 
   // ---- Arbitrary package.json script --------------------------------------

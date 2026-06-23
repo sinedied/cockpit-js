@@ -151,6 +151,8 @@ async function handleApi(
     case "POST /api/test":
       controller.runTests(body).catch((e) => controller.log(String(e), "error"));
       return sendJson(res, 202, { started: true });
+    case "POST /api/test/watch":
+      return sendJson(res, 200, await controller.setTestWatch(body.on === true));
     case "POST /api/script":
       controller.runScriptByName(body.name).catch((e) => controller.log(String(e), "error"));
       return sendJson(res, 202, { started: true });

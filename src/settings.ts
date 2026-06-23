@@ -10,9 +10,36 @@ import type { LaneId, PinnedTask, Settings, SettingsPatch } from "./types.ts";
 const DIR = path.join(os.homedir(), ".cockpit");
 const FILE = path.join(DIR, "settings.json");
 
-const DEFAULTS: Settings = { pinnedTasks: null, theme: "auto" };
+// Canonical tab ids (must match data-tab values in public/index.html). Used to
+// sanitize persisted tabOrder/hiddenTabs so stale/unknown ids can't leak in.
+export const KNOWN_TABS = ["info", "preview", "tests", "problems", "deps", "console"] as const;
+const KNOWN_TAB_SET = new Set<string>(KNOWN_TABS);
+
+const DEFAULTS: Settings = {
+  pinnedTasks: null,
+  theme: "auto",
+  tabOrder: null,
+  hiddenTabs: [],
+  autoLint: false,
+  autoTest: false,
+  autoDeps: false,
+};
 
 const LANE_IDS = new Set<LaneId>(["build", "typecheck", "lint", "format", "test"]);
+
+// Validate a persisted tab id list: keep only known ids, de-duplicate, preserve order.
+function sanitizeTabs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of value) {
+    if (typeof t === "string" && KNOWN_TAB_SET.has(t) && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
 
 function sanitizeTasks(value: unknown): PinnedTask[] | null {
   if (!Array.isArray(value)) return null;
@@ -35,16 +62,27 @@ function sanitizeTasks(value: unknown): PinnedTask[] | null {
 // reinterpreted as lanes. Absent/invalid → null (fall back to defaults).
 export function migrate(raw: Partial<Settings> | undefined): Settings {
   const theme = typeof raw?.theme === "string" ? raw.theme : "auto";
+  const tabOrder = raw && "tabOrder" in raw ? sanitizeTabs(raw.tabOrder) : null;
+  const extras = {
+    theme,
+    // A persisted-but-empty tabOrder is meaningless (it would hide every tab) →
+    // treat it as "no order set" and fall back to the default.
+    tabOrder: tabOrder?.length ? tabOrder : null,
+    hiddenTabs: sanitizeTabs(raw?.hiddenTabs),
+    autoLint: raw?.autoLint === true,
+    autoTest: raw?.autoTest === true,
+    autoDeps: raw?.autoDeps === true,
+  };
   if (raw && "pinnedTasks" in raw) {
-    return { pinnedTasks: sanitizeTasks(raw.pinnedTasks), theme };
+    return { pinnedTasks: sanitizeTasks(raw.pinnedTasks), ...extras };
   }
   if (raw && Array.isArray(raw.pinnedScripts)) {
     const tasks: PinnedTask[] = raw.pinnedScripts
       .filter((n): n is string => typeof n === "string")
       .map((name) => ({ type: "script", name }));
-    return { pinnedTasks: tasks, theme };
+    return { pinnedTasks: tasks, ...extras };
   }
-  return { pinnedTasks: null, theme };
+  return { pinnedTasks: null, ...extras };
 }
 
 async function readAll(): Promise<Record<string, Partial<Settings>>> {
@@ -66,13 +104,43 @@ export async function loadSettings(projectKey: string): Promise<Settings> {
 }
 
 export async function saveSettings(projectKey: string, patch: SettingsPatch): Promise<Settings> {
+  // Serialize writes so concurrent patches (e.g. a tab reorder and an auto-run
+  // toggle fired in quick succession) can't read-modify-write over each other
+  // and drop one of the changes — the file write is not atomic on its own.
+  const run = writeQueue.then(() => doSaveSettings(projectKey, patch));
+  writeQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+async function doSaveSettings(projectKey: string, patch: SettingsPatch): Promise<Settings> {
   const all = await readAll();
   const current = migrate(all[projectKey]);
   const next: Settings = { ...current };
   if (Array.isArray(patch.pinnedTasks)) next.pinnedTasks = sanitizeTasks(patch.pinnedTasks);
   if (typeof patch.theme === "string") next.theme = patch.theme;
+  if (Array.isArray(patch.tabOrder)) {
+    const order = sanitizeTabs(patch.tabOrder);
+    next.tabOrder = order.length ? order : null;
+  }
+  if (Array.isArray(patch.hiddenTabs)) next.hiddenTabs = sanitizeTabs(patch.hiddenTabs);
+  if (typeof patch.autoLint === "boolean") next.autoLint = patch.autoLint;
+  if (typeof patch.autoTest === "boolean") next.autoTest = patch.autoTest;
+  if (typeof patch.autoDeps === "boolean") next.autoDeps = patch.autoDeps;
   // Persist the new schema only; drop the legacy `pinnedScripts` key.
-  all[projectKey] = { pinnedTasks: next.pinnedTasks, theme: next.theme };
+  all[projectKey] = {
+    pinnedTasks: next.pinnedTasks,
+    theme: next.theme,
+    tabOrder: next.tabOrder,
+    hiddenTabs: next.hiddenTabs,
+    autoLint: next.autoLint,
+    autoTest: next.autoTest,
+    autoDeps: next.autoDeps,
+  };
   await writeAll(all);
   return next;
 }
