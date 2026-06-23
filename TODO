@@ -15,19 +15,21 @@ Instead of pills, extract proper information about the project. Suggest useful i
   * tabs: ... for extra tabs not fitting in the tab bar
 - [x] integrated browser: improve integration
  + screen capture + playwright integration
+- [x] test: watch switch, logs switch instead of raw output (like dev tab)
+- [x] dev => preview tab
+- [x] add status pills on tabs (test, problems)
+- [x] settings tab:
+  - [x] auto lint / test on load
+  - [x] tab order and visibility (change default)
 
-- [ ] test: watch switch, logs switch instead of raw output (like dev tab)
+- [ ] Problems tabs
+  * include TS errors and lint errors, + fix me with copilot button
 
-- [ ] dev => preview tab
-
-- [ ] add status pills on tabs (test, problems)
-
-- [ ] settings tab:
-  - [ ] auto lint / test on load
-  - [ ] tab order and visibility (change default)
-
-- [ ] language server TS
-    * lint errors
+- [ ] depdencies: 
+  * link to changelog
+  * scope: default (default or custom => check which ones)
+  * audit should return more info, like which packages are vulnerable and if they have a fix available, and link to the advisories. 
+  * Update with Copilot
 
 - [ ] debugger? + usuable by agent
 
