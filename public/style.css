@@ -1510,6 +1510,98 @@ table.dep-table {
   border-color: var(--green);
 }
 
+/* ---- Dependencies: Updates + Security sections ---- */
+#tab-deps .deps-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+#tab-deps .deps-section.updates {
+  flex: 1 1 0;
+}
+#tab-deps .deps-section.security {
+  flex: 0 1 auto;
+  max-height: 45%;
+}
+#tab-deps .outdated,
+#tab-deps .audit-detail {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.deps-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.deps-section-head.wrap {
+  flex-wrap: wrap;
+}
+.deps-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.deps-section-title .oi {
+  color: var(--dim);
+}
+
+.dep-table .dep-name {
+  font-weight: 500;
+}
+.dep-table .dep-pick {
+  width: 24px;
+  text-align: center;
+}
+.dep-type {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  vertical-align: middle;
+}
+.dep-type.dev {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.dep-links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.dep-links a:hover {
+  text-decoration: underline;
+}
+.dep-link-sep {
+  color: var(--border);
+  margin: 0 5px;
+}
+
+.audit-detail .fix.yes {
+  color: var(--green);
+}
+.audit-detail .fix.no {
+  color: var(--dim);
+}
+.audit-detail .fix-major {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--yellow);
+  border: 1px solid var(--yellow);
+  border-radius: 999px;
+  padding: 0 5px;
+  margin-left: 4px;
+}
+
 /* ---- Fix-with-Copilot capture overlay ---- */
 .capture-overlay {
   position: fixed;

@@ -20,7 +20,14 @@ import {
 import { parseJestLike, parseTap, parseTextCounts } from "./test-report.ts";
 import { parseLint, sortDiagnostics } from "./lint-report.ts";
 import { pushCapped, extractUrl, isPortInUse } from "./util.ts";
-import { buildFixPrompt, buildTestFixPrompt, buildDiagnosticFixPrompt } from "./fix.ts";
+import {
+  buildFixPrompt,
+  buildTestFixPrompt,
+  buildDiagnosticFixPrompt,
+  buildDepsUpdatePrompt,
+  buildDepsAuditFixPrompt,
+  type UpdatePromptTarget,
+} from "./fix.ts";
 import { TsServerClient, resolveTsserverPath } from "./ts-server.ts";
 import { loadSettings, saveSettings, KNOWN_TABS } from "./settings.ts";
 import { computeStats } from "./info.ts";
@@ -1130,11 +1137,70 @@ export class Controller {
   runAudit() {
     return deps.runAudit(this);
   }
+  // Single "Refresh" for the deps tab: outdated + audit together.
+  async refreshDeps() {
+    await Promise.all([this.listOutdated(), this.runAudit()]);
+    return this.deps;
+  }
   safeUpdate(opts?: SafeUpdateOptions): Promise<SafeUpdateResult> {
     return deps.safeUpdate(this, opts);
   }
   rollbackLastUpdate() {
     return deps.rollbackLast(this);
+  }
+
+  // "Update with Copilot": resolve targets from the chosen scope and hand the
+  // update off to the agent (which drives update_dependencies / audit / rollback).
+  // default -> every outdated package to its in-range `wanted` version;
+  // custom  -> the named packages to their `latest` version.
+  async sendCopilotUpdate(opts: {
+    mode: "default" | "custom";
+    packages?: string[] | null;
+  }): Promise<{ ok: boolean; reason?: string }> {
+    const mode = opts.mode === "custom" ? "custom" : "default";
+    if (!this.deps.outdated) await this.listOutdated().catch(() => {});
+    const list = this.deps.outdated?.list || [];
+    const targets: UpdatePromptTarget[] = [];
+    if (mode === "default") {
+      for (const o of list) {
+        const to = o.wanted || o.latest;
+        if (to && to !== o.current) targets.push({ name: o.name, from: o.current, to });
+      }
+    } else {
+      const wanted = new Set(opts.packages || []);
+      for (const o of list) {
+        if (!wanted.has(o.name)) continue;
+        const to = o.latest || o.wanted;
+        if (to) targets.push({ name: o.name, from: o.current, to });
+      }
+    }
+    if (!targets.length) return { ok: false, reason: "No packages to update." };
+    // Establish a real audit baseline so the agent can tell genuinely new
+    // high/critical advisories from pre-existing ones (count-only is unreliable).
+    if (!this.deps.audit) await this.runAudit().catch(() => {});
+    const baselineSevere = (this.deps.audit?.vulnerabilities || [])
+      .filter((v) => v.severity === "high" || v.severity === "critical")
+      .map((v) => v.name);
+    const prompt = buildDepsUpdatePrompt({
+      mode,
+      targets,
+      baselineAudit: this.deps.audit?.metadata || null,
+      baselineSevere,
+    });
+    await this.sendToChat(prompt);
+    this.log(`Asked Copilot to update ${targets.length} package(s).`);
+    return { ok: true };
+  }
+
+  // "Fix with Copilot" for the Security section: remediate known vulnerabilities.
+  async sendCopilotAuditFix(): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.deps.audit) await this.runAudit().catch(() => {});
+    const vulnerabilities = this.deps.audit?.vulnerabilities || [];
+    if (!vulnerabilities.length) return { ok: false, reason: "No known vulnerabilities." };
+    const prompt = buildDepsAuditFixPrompt({ vulnerabilities });
+    await this.sendToChat(prompt);
+    this.log(`Asked Copilot to fix ${vulnerabilities.length} vulnerability group(s).`);
+    return { ok: true };
   }
 
   // ---- Fix with Copilot ---------------------------------------------------

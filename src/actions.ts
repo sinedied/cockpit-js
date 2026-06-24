@@ -188,7 +188,7 @@ export function buildActions(controller: Controller): ActionDefinition[] {
     {
       name: "update_dependencies",
       description:
-        "Safely update dependencies: apply updates, run the verify suite (type-check + build + test), and automatically roll back any package that breaks it. scope is 'patch' | 'minor' | 'major'; or pass an explicit { packages: ['name@version', ...] }. Optional { verify: ['typecheck','build','test','lint'] } overrides the verify steps.",
+        "Safely update dependencies: apply updates, run the verify suite (build + lint + test by default), and automatically roll back any package that breaks it. scope is 'patch' | 'minor' | 'major'; or pass an explicit { packages: ['name@version', ...] }. Optional { verify: ['build','lint','test','typecheck'] } overrides the verify steps. This tool only handles the verify/rollback loop — to guard against security regressions, call the separate audit action afterwards and roll back (via rollback_last_update) any package that introduced a new high/critical advisory.",
       inputSchema: {
         type: "object",
         properties: {

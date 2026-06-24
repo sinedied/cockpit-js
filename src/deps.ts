@@ -18,6 +18,7 @@ import type { Controller } from "./controller.ts";
 import type {
   AuditResult,
   BumpKind,
+  DepLinks,
   OutdatedEntry,
   OutdatedResult,
   ProjectDetection,
@@ -105,6 +106,70 @@ function parseTableOutdated(text: string): OutdatedEntry[] {
   return list;
 }
 
+// ---- package metadata / links ---------------------------------------------
+
+// Normalize whatever a package.json `repository`/`homepage` field holds into a
+// plain https URL. Handles object form, shorthand hosts (github:user/repo),
+// bare `user/repo`, git+/git@/git:/ssh: prefixes, trailing `.git` and `#hash`.
+export function normalizeRepoUrl(input: unknown): string | null {
+  let url: string | null = null;
+  if (typeof input === "string") url = input;
+  else if (input && typeof input === "object") {
+    const u = (input as { url?: unknown }).url;
+    if (typeof u === "string") url = u;
+  }
+  if (!url) return null;
+  url = url.trim();
+  if (!url) return null;
+  const shorthand = /^(github|gitlab|bitbucket):(.+)$/i.exec(url);
+  if (shorthand) {
+    const host = (
+      { github: "github.com", gitlab: "gitlab.com", bitbucket: "bitbucket.org" } as Record<
+        string,
+        string
+      >
+    )[shorthand[1].toLowerCase()];
+    return `https://${host}/${shorthand[2].replace(/\.git$/, "")}`;
+  }
+  if (/^[\w.-]+\/[\w.-]+$/.test(url)) return `https://github.com/${url.replace(/\.git$/, "")}`;
+  url = url.replace(/^git\+/, "");
+  const scp = /^git@([^:]+):(.+)$/.exec(url);
+  if (scp) url = `https://${scp[1]}/${scp[2]}`;
+  url = url
+    .replace(/^ssh:\/\/(?:git@)?/, "https://")
+    .replace(/^git:\/\//, "https://")
+    .replace(/^http:\/\//, "https://");
+  url = url
+    .replace(/#.*$/, "")
+    .replace(/\.git$/, "")
+    .replace(/\/+$/, "");
+  return /^https:\/\//.test(url) ? url : null;
+}
+
+interface InstalledMeta {
+  repository?: unknown;
+  homepage?: string;
+}
+
+// Best-effort, offline package links read from the installed copy in
+// node_modules. GitHub repos point the changelog at the /releases page.
+export async function buildDepLinks(cwd: string, name: string): Promise<DepLinks> {
+  const npm = `https://www.npmjs.com/package/${name}`;
+  let repo: string | null = null;
+  try {
+    const raw = await readText(path.join(cwd, "node_modules", name, "package.json"));
+    if (raw) {
+      const meta = JSON.parse(raw) as InstalledMeta;
+      repo = normalizeRepoUrl(meta.repository) || normalizeRepoUrl(meta.homepage);
+    }
+  } catch {
+    // best-effort: missing/unreadable metadata just yields the npm link
+  }
+  if (!repo) return { npm };
+  const isGithub = /^https:\/\/github\.com\//i.test(repo);
+  return { npm, repo, changelog: isGithub ? `${repo}/releases` : repo, isGithub };
+}
+
 export async function listOutdated(controller: Controller): Promise<OutdatedResult> {
   const d = controller.detection;
   if (!d?.hasProject) return { list: [], supported: false };
@@ -122,6 +187,11 @@ export async function listOutdated(controller: Controller): Promise<OutdatedResu
     supported = list.length > 0;
   }
   list.sort((a, b) => a.name.localeCompare(b.name));
+  await Promise.all(
+    list.map(async (e) => {
+      e.links = await buildDepLinks(controller.cwd, e.name);
+    }),
+  );
   controller.deps.outdated = {
     list,
     supported,
@@ -134,11 +204,24 @@ export async function listOutdated(controller: Controller): Promise<OutdatedResu
 
 // ---- audit ----------------------------------------------------------------
 
+interface AuditViaObj {
+  title?: string;
+  name?: string;
+  url?: string;
+  severity?: string;
+}
+
+interface AuditFixRaw {
+  name?: string;
+  version?: string;
+  isSemVerMajor?: boolean;
+}
+
 interface AuditVulnRaw {
   severity?: string;
   range?: string | null;
-  fixAvailable?: unknown;
-  via?: Array<string | { title?: string; name?: string }>;
+  fixAvailable?: boolean | AuditFixRaw;
+  via?: Array<string | AuditViaObj>;
 }
 
 interface NpmAuditJson {
@@ -146,7 +229,7 @@ interface NpmAuditJson {
   vulnerabilities?: Record<string, AuditVulnRaw>;
 }
 
-function parseAudit(text: string): AuditResult {
+export function parseAudit(text: string): AuditResult {
   let json: NpmAuditJson;
   try {
     json = JSON.parse(text || "{}");
@@ -157,14 +240,29 @@ function parseAudit(text: string): AuditResult {
   const vulns: AuditResult["vulnerabilities"] = [];
   if (json.vulnerabilities) {
     for (const [name, v] of Object.entries(json.vulnerabilities)) {
+      const viaObjs = Array.isArray(v.via)
+        ? v.via.filter((x): x is AuditViaObj => typeof x === "object" && x !== null)
+        : [];
+      const advisories = viaObjs
+        .filter((x) => x.title || x.url)
+        .map((x) => ({ title: x.title || x.name || "Advisory", url: x.url, severity: x.severity }));
+      const via = Array.isArray(v.via)
+        ? v.via.map((x) => (typeof x === "string" ? x : x.title || x.name || "")).filter(Boolean)
+        : [];
+      const fa = v.fixAvailable;
+      const fixAvailable = fa === true || (typeof fa === "object" && fa !== null);
+      const fix =
+        typeof fa === "object" && fa !== null
+          ? { name: fa.name, version: fa.version, major: Boolean(fa.isSemVerMajor) }
+          : undefined;
       vulns.push({
         name,
         severity: v.severity || "unknown",
         range: v.range || null,
-        fixAvailable: Boolean(v.fixAvailable),
-        via: Array.isArray(v.via)
-          ? v.via.map((x) => (typeof x === "string" ? x : x.title || x.name || "")).filter(Boolean)
-          : [],
+        fixAvailable,
+        via,
+        advisories,
+        fix,
       });
     }
   }
@@ -213,8 +311,8 @@ function selectByScope(list: OutdatedEntry[], scope: UpdateScope): UpdateTarget[
 
 function defaultVerify(d: ProjectDetection): string[] {
   const steps: string[] = [];
-  if (d.typescript) steps.push("typecheck");
   if (!resolveBuild(d).unavailable) steps.push("build");
+  if (!resolveLint(d).unavailable) steps.push("lint");
   if (d.testRunner) steps.push("test");
   return steps;
 }

@@ -7,6 +7,15 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matches ANSI escape sequences to strip them
 const ANSI = /\x1b\[[0-9;]*m/g;
 const strip = (s) => (s || "").replace(ANSI, "");
+const esc = (s) =>
+  String(s ?? "").replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+  );
+
+// Deps "Updates" scope: "default" (in-range) or "custom" (hand-picked rows).
+let depsScope = "default";
+const depsChecked = new Set();
 
 const state = {
   detection: null,
@@ -405,11 +414,13 @@ function renderRunning() {
 }
 
 // Dependency action buttons: spinner on the active one, disable its siblings.
+// When clearing the busy state, re-derive actionability (don't blindly enable).
 function setDepsBusy(active, on) {
   setBtnLoading(active, on);
-  for (const b of [$("#deps-check"), $("#deps-audit"), $("#deps-update")]) {
+  for (const b of [$("#deps-refresh"), $("#deps-update"), $("#deps-audit-fix")]) {
     if (b && b !== active) b.disabled = on;
   }
+  if (!on) updateDepsButtons();
 }
 
 // Build one "label -> value" row for the Platform / Dependencies sections.
@@ -1403,32 +1414,102 @@ function navigatePreview(raw) {
 
 // ---- Dependencies ---------------------------------------------------------
 
+// One "Changelog" / "Repo" link cell for an outdated/vulnerable package row.
+function depLinksCell(links) {
+  if (!links) return "—";
+  const out = [];
+  if (links.changelog)
+    out.push(
+      `<a href="${esc(links.changelog)}" target="_blank" rel="noopener">${links.isGithub ? "Changelog" : "Repo"}</a>`,
+    );
+  else if (links.repo)
+    out.push(`<a href="${esc(links.repo)}" target="_blank" rel="noopener">Repo</a>`);
+  out.push(`<a href="${esc(links.npm)}" target="_blank" rel="noopener">npm</a>`);
+  return out.join('<span class="dep-link-sep">·</span>');
+}
+
+// Short prod/dev badge from the npm "type" field (devDependencies -> dev).
+function depTypeBadge(type) {
+  const dev = /dev/i.test(type || "");
+  return `<span class="dep-type ${dev ? "dev" : "prod"}">${dev ? "dev" : "prod"}</span>`;
+}
+
 function renderOutdated() {
   const wrap = $("#outdated");
   const od = state.deps.outdated;
   if (!od) {
-    wrap.innerHTML = '<div class="empty">Press <b>Check outdated</b>.</div>';
+    depsChecked.clear();
+    wrap.innerHTML = '<div class="empty">Press <b>Refresh</b> to check for updates.</div>';
+    updateDepsButtons();
     return;
   }
   if (!od.list.length) {
+    depsChecked.clear();
     wrap.innerHTML = '<div class="empty">All dependencies are up to date.</div>';
+    updateDepsButtons();
     return;
   }
+  const custom = depsScope === "custom";
+  // A row is pickable only when a newer "latest" exists. Prune any stale picks
+  // (packages that left the list or are no longer updatable) so the Custom-mode
+  // button state and the POST payload stay accurate across refreshes.
+  const checkable = new Set(
+    od.list.filter((o) => o.latest && o.latest !== o.current).map((o) => o.name),
+  );
+  for (const name of [...depsChecked]) if (!checkable.has(name)) depsChecked.delete(name);
   const rows = od.list
-    .map(
-      (o) => `<tr>
-        <td>${o.name}</td>
+    .map((o) => {
+      const pickable = custom && checkable.has(o.name);
+      const checkbox = custom
+        ? `<td class="dep-pick">${
+            pickable
+              ? `<input type="checkbox" class="dep-check" data-name="${esc(o.name)}"${depsChecked.has(o.name) ? " checked" : ""} aria-label="Update ${esc(o.name)}" />`
+              : ""
+          }</td>`
+        : "";
+      return `<tr>
+        ${checkbox}
+        <td class="dep-name">${esc(o.name)} ${depTypeBadge(o.type)}</td>
         <td class="ver">${o.current ?? "—"}</td>
         <td class="ver">${o.wanted ?? o.latest ?? "—"}</td>
         <td class="ver">${o.latest ?? "—"}</td>
         <td><span class="bump ${o.bump}">${o.bump}</span></td>
-      </tr>`,
-    )
+        <td class="dep-links">${depLinksCell(o.links)}</td>
+      </tr>`;
+    })
     .join("");
   wrap.innerHTML = `<table class="dep-table">
-    <thead><tr><th>Package</th><th>Current</th><th>Wanted</th><th>Latest</th><th>Bump</th></tr></thead>
+    <thead><tr>${custom ? "<th></th>" : ""}<th>Package</th><th>Current</th><th>Wanted</th><th>Latest</th><th>Bump</th><th>Links</th></tr></thead>
     <tbody>${rows}</tbody></table>
     ${od.supported ? "" : '<div class="empty">JSON output unavailable for this package manager — values are best-effort.</div>'}`;
+  for (const cb of $$("#outdated .dep-check")) {
+    cb.addEventListener("change", (e) => {
+      const name = e.currentTarget.dataset.name;
+      if (e.currentTarget.checked) depsChecked.add(name);
+      else depsChecked.delete(name);
+      updateDepsButtons();
+    });
+  }
+  updateDepsButtons();
+}
+
+// Enable/disable the two Copilot action buttons based on what's actionable.
+function updateDepsButtons() {
+  const od = state.deps.outdated;
+  const list = od?.list || [];
+  const upd = $("#deps-update");
+  if (upd) {
+    const inRange = list.some(
+      (o) => (o.wanted || o.latest) && (o.wanted || o.latest) !== o.current,
+    );
+    const canUpdate = depsScope === "custom" ? depsChecked.size > 0 : inRange;
+    upd.disabled = !canUpdate;
+  }
+  const fix = $("#deps-audit-fix");
+  if (fix) {
+    const vulns = state.deps.audit?.vulnerabilities || [];
+    fix.disabled = !vulns.some((v) => v.fixAvailable);
+  }
 }
 
 function renderAudit() {
@@ -1436,16 +1517,18 @@ function renderAudit() {
   const el = $("#audit-summary");
   if (!a) {
     el.classList.add("hidden");
+    renderAuditDetail();
     return;
   }
   el.classList.remove("hidden");
   el.innerHTML = "";
   const m = a.metadata;
-  if (m && (m.total ?? 0) === 0) {
+  if ((m && (m.total ?? 0) === 0) || !a.vulnerabilities.length) {
     const s = document.createElement("span");
     s.className = "sev clean";
     s.textContent = "No known vulnerabilities";
     el.append(s);
+    renderAuditDetail();
     return;
   }
   for (const sev of ["critical", "high", "moderate", "low", "info"]) {
@@ -1456,6 +1539,68 @@ function renderAudit() {
     s.textContent = `${n} ${sev}`;
     el.append(s);
   }
+  renderAuditDetail();
+}
+
+// Per-package vulnerability rows: severity, vulnerable range, fix target, links.
+function renderAuditDetail() {
+  const wrap = $("#audit-detail");
+  if (!wrap) return;
+  const vulns = state.deps.audit?.vulnerabilities || [];
+  if (!vulns.length) {
+    wrap.innerHTML = "";
+    updateDepsButtons();
+    return;
+  }
+  const fixCell = (v) => {
+    if (v.fix?.version)
+      return `<span class="fix yes">${esc(v.fix.name || v.name)}@${esc(v.fix.version)}${v.fix.major ? ' <span class="fix-major">major</span>' : ""}</span>`;
+    if (v.fixAvailable) return '<span class="fix yes">fix available</span>';
+    return '<span class="fix no">no fix yet</span>';
+  };
+  const advCell = (v) => {
+    const links = (v.advisories || [])
+      .filter((adv) => adv.url)
+      .slice(0, 2)
+      .map(
+        (adv) =>
+          `<a href="${esc(adv.url)}" target="_blank" rel="noopener" title="${esc(adv.title)}">advisory</a>`,
+      );
+    return links.length ? links.join('<span class="dep-link-sep">·</span>') : "—";
+  };
+  const rows = vulns
+    .map(
+      (v) => `<tr>
+        <td class="dep-name">${esc(v.name)}</td>
+        <td><span class="sev ${esc(v.severity)}">${esc(v.severity)}</span></td>
+        <td class="ver">${v.range ? esc(v.range) : "—"}</td>
+        <td>${fixCell(v)}</td>
+        <td class="dep-links">${advCell(v)}</td>
+      </tr>`,
+    )
+    .join("");
+  wrap.innerHTML = `<table class="dep-table">
+    <thead><tr><th>Package</th><th>Severity</th><th>Vulnerable</th><th>Fix</th><th>Advisory</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  updateDepsButtons();
+}
+
+// Dependencies tab pill: number of pending updates (or vulnerabilities when
+// nothing is outdated). Turns red when a high/critical advisory is present.
+function renderDepsBadge() {
+  const badge = $("#deps-badge");
+  if (!badge) return;
+  const outdated = state.deps.outdated?.list?.length || 0;
+  const vulns = state.deps.audit?.vulnerabilities?.length || 0;
+  const m = state.deps.audit?.metadata || {};
+  const severe = (m.critical || 0) + (m.high || 0);
+  if (!outdated && !vulns) {
+    badge.className = "tab-badge hidden";
+  } else {
+    badge.textContent = String(outdated || vulns);
+    badge.className = severe ? "tab-badge error" : "tab-badge";
+  }
+  recomputeTabOverflow();
 }
 
 function renderUpdate() {
@@ -1468,7 +1613,6 @@ function renderUpdate() {
   log.classList.remove("hidden");
   log.textContent = strip((u.log || []).join(""));
   log.scrollTop = log.scrollHeight;
-  $("#deps-fix").classList.toggle("hidden", !(u.status === "done" && u.fixAvailable));
 }
 
 // ---- SSE ------------------------------------------------------------------
@@ -1514,6 +1658,7 @@ function applyEvent(e) {
       renderOutdated();
       renderAudit();
       renderUpdate();
+      renderDepsBadge();
       renderRunning();
       if (activeConsoleLane) setConsoleLane(activeConsoleLane);
       break;
@@ -1611,10 +1756,12 @@ function applyEvent(e) {
     case "deps:outdated":
       state.deps.outdated = e.outdated;
       renderOutdated();
+      renderDepsBadge();
       break;
     case "deps:audit":
       state.deps.audit = e.audit;
       renderAudit();
+      renderDepsBadge();
       break;
     case "deps:update-start":
       state.deps.update = { status: "running", log: [], scope: e.scope };
@@ -2004,20 +2151,11 @@ $("#capture-send").addEventListener("click", async (e) => {
   }
 });
 
-$("#deps-check").addEventListener("click", async (e) => {
+$("#deps-refresh").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   setDepsBusy(btn, true);
   try {
-    await api("/api/deps/outdated", {});
-  } finally {
-    setDepsBusy(btn, false);
-  }
-});
-$("#deps-audit").addEventListener("click", async (e) => {
-  const btn = e.currentTarget;
-  setDepsBusy(btn, true);
-  try {
-    await api("/api/deps/audit", {});
+    await api("/api/deps/refresh", {});
   } finally {
     setDepsBusy(btn, false);
   }
@@ -2027,12 +2165,37 @@ $$("#deps-scope button").forEach((b) => {
     $$("#deps-scope button").forEach((x) => {
       x.classList.toggle("on", x === b);
     });
+    depsScope = b.dataset.scope === "custom" ? "custom" : "default";
+    renderOutdated();
   });
 });
-$("#deps-update").addEventListener("click", () =>
-  api("/api/deps/update", { scope: $("#deps-scope button.on")?.dataset.scope || "minor" }),
-);
-$("#deps-fix").addEventListener("click", () => api("/api/deps/fix", {}));
+$("#deps-update").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  setDepsBusy(btn, true);
+  try {
+    const r = await api("/api/deps/update", {
+      mode: depsScope,
+      packages: depsScope === "custom" ? [...depsChecked] : null,
+    });
+    if (r?.ok) toast("Asked Copilot to update dependencies. Watch the chat.");
+    else if (r?.reason) toast(r.reason);
+  } finally {
+    setDepsBusy(btn, false);
+  }
+});
+$("#deps-audit-fix").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
+  setDepsBusy(btn, true);
+  try {
+    const r = await api("/api/deps/audit-fix", {});
+    if (r?.ok) toast("Asked Copilot to fix vulnerabilities. Watch the chat.");
+    else if (r?.reason) toast(r.reason);
+  } finally {
+    setDepsBusy(btn, false);
+  }
+});
 
 // ---- Settings panel -------------------------------------------------------
 

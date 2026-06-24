@@ -143,6 +143,17 @@ export interface TestReport {
 
 export type BumpKind = "patch" | "minor" | "major" | "none" | "downgrade" | "unknown";
 
+export interface DepLinks {
+  // npm package page — always available.
+  npm: string;
+  // Normalized https repository URL (when discoverable from local metadata).
+  repo?: string;
+  // Best-effort changelog link: GitHub repo -> /releases, else the repo URL.
+  changelog?: string;
+  // True when the repository is hosted on GitHub (changelog points at releases).
+  isGithub?: boolean;
+}
+
 export interface OutdatedEntry {
   name: string;
   current: string | null;
@@ -150,6 +161,7 @@ export interface OutdatedEntry {
   latest: string | null;
   type: string;
   bump: BumpKind;
+  links?: DepLinks;
 }
 
 export interface OutdatedResult {
@@ -159,12 +171,29 @@ export interface OutdatedResult {
   at?: number;
 }
 
+export interface AuditAdvisory {
+  title: string;
+  url?: string;
+  severity?: string;
+}
+
+export interface AuditFix {
+  // Package whose bump resolves the advisory (usually the same package).
+  name?: string;
+  // Target version that contains the fix, when npm reports one.
+  version?: string;
+  // True when the fix requires a semver-major bump (potential breaking change).
+  major?: boolean;
+}
+
 export interface AuditVulnerability {
   name: string;
   severity: string;
   range: string | null;
   fixAvailable: boolean;
   via: string[];
+  advisories: AuditAdvisory[];
+  fix?: AuditFix;
 }
 
 export interface AuditResult {

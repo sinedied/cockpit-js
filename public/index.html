@@ -236,7 +236,10 @@
         ></span>
       </button>
       <button type="button" data-tab="deps">
-        <svg class="oi" aria-hidden="true"><use href="#oct-package" /></svg>Dependencies
+        <svg class="oi" aria-hidden="true"><use href="#oct-package" /></svg>Dependencies<span
+          id="deps-badge"
+          class="tab-badge hidden"
+        ></span>
       </button>
       <button type="button" data-tab="console">
         <svg class="oi" aria-hidden="true"><use href="#oct-terminal" /></svg>Console
@@ -431,30 +434,47 @@
 
       <!-- Dependencies -->
       <section id="tab-deps" class="tab-panel" hidden>
-        <div class="panel-head wrap">
-          <button type="button" id="deps-check" class="lane-btn">
-            <svg class="oi" aria-hidden="true"><use href="#oct-package" /></svg>Check outdated
-          </button>
-          <button type="button" id="deps-audit" class="lane-btn">
-            <svg class="oi" aria-hidden="true"><use href="#oct-shield-check" /></svg>Audit
-          </button>
-          <span class="grow"></span>
-          <span class="field-label">Scope</span>
-          <!-- biome-ignore lint/a11y/useSemanticElements: styled segmented button group, not a fieldset -->
-          <div class="segmented" id="deps-scope" role="group" aria-label="Update scope">
-            <button type="button" data-scope="patch">patch</button>
-            <button type="button" data-scope="minor" class="on">minor</button>
-            <button type="button" data-scope="major">major</button>
-          </div>
-          <button type="button" id="deps-update" class="lane-btn primary">
-            <svg class="oi" aria-hidden="true"><use href="#oct-versions" /></svg>Safe update
-          </button>
-          <button type="button" id="deps-fix" class="fix-btn hidden">
-            <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix with Copilot
+        <div class="panel-head">
+          <button type="button" id="deps-refresh" class="lane-btn">
+            <svg class="oi" aria-hidden="true"><use href="#oct-sync" /></svg>Refresh
           </button>
         </div>
-        <div id="audit-summary" class="audit hidden"></div>
-        <div id="outdated" class="outdated"></div>
+
+        <!-- Updates -->
+        <div class="deps-section updates">
+          <div class="deps-section-head wrap">
+            <h3 class="deps-section-title">
+              <svg class="oi" aria-hidden="true"><use href="#oct-package" /></svg>Updates
+            </h3>
+            <span class="grow"></span>
+            <span class="field-label">Scope</span>
+            <!-- biome-ignore lint/a11y/useSemanticElements: styled segmented button group, not a fieldset -->
+            <div class="segmented" id="deps-scope" role="group" aria-label="Update scope">
+              <button type="button" data-scope="default" class="on">Default</button>
+              <button type="button" data-scope="custom">Custom</button>
+            </div>
+            <button type="button" id="deps-update" class="lane-btn primary">
+              <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Update with Copilot
+            </button>
+          </div>
+          <div id="outdated" class="outdated"></div>
+        </div>
+
+        <!-- Security -->
+        <div class="deps-section security">
+          <div class="deps-section-head wrap">
+            <h3 class="deps-section-title">
+              <svg class="oi" aria-hidden="true"><use href="#oct-shield-check" /></svg>Security
+            </h3>
+            <span class="grow"></span>
+            <button type="button" id="deps-audit-fix" class="lane-btn primary">
+              <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix with Copilot
+            </button>
+          </div>
+          <div id="audit-summary" class="audit hidden"></div>
+          <div id="audit-detail" class="audit-detail"></div>
+        </div>
+
         <pre id="deps-log" class="console hidden"></pre>
       </section>
 

@@ -169,19 +169,12 @@ async function handleApi(
       const result = await controller.sendScreenshotToChat(body.prompt, data, mimeType);
       return sendJson(res, result.ok ? 200 : 502, result);
     }
-    case "POST /api/deps/outdated":
-      return sendJson(res, 200, await controller.listOutdated());
-    case "POST /api/deps/audit":
-      return sendJson(res, 200, await controller.runAudit());
+    case "POST /api/deps/refresh":
+      return sendJson(res, 200, await controller.refreshDeps());
     case "POST /api/deps/update":
-      controller.safeUpdate(body).catch((e) => controller.log(String(e), "error"));
-      return sendJson(res, 202, { started: true });
-    case "POST /api/deps/fix": {
-      const prompt = controller.deps.update?.fixPrompt;
-      if (!prompt) return sendJson(res, 400, { ok: false, reason: "No update failure to fix." });
-      await controller.sendPromptToChat(prompt);
-      return sendJson(res, 200, { ok: true });
-    }
+      return sendJson(res, 200, await controller.sendCopilotUpdate(body));
+    case "POST /api/deps/audit-fix":
+      return sendJson(res, 200, await controller.sendCopilotAuditFix());
     case "POST /api/fix":
       return sendJson(res, 200, await controller.fixIssue(body.lane));
     default:
