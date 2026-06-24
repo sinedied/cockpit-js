@@ -155,7 +155,7 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   groups. The "special" built-in tasks are **build / lint / format / test** (`LANE_TASKS`);
   each binds to its first present candidate script (`LANE_CANDIDATES`, mirroring
   `lanes.ts` `laneScript()`/`pickScript`). A script that backs a special is shown
-  **bold with an accent star octicon (`oct-star-fill`) after the name** and runs/pins
+  **bold with an accent zap octicon (`oct-zap`) after the name** and runs/pins
   as the **lane** (no duplicate lane/script row); built-in specials with no backing script (e.g. Lint/Format via Biome)
   are listed as script-less specials **at the top**. Other same-family scripts
   (`lint:fix`, `format:check`, `test:watch`) stay ordinary. `defaultPinnedTasks()`

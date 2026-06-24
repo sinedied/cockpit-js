@@ -648,8 +648,8 @@ body {
   font-size: 12px;
 }
 
-/* Special (built-in) task rows: bold name + an accent star octicon after the
-   name. An SVG icon aligns cleanly with the text (the ★ glyph sat low). */
+/* Special (built-in) task rows: bold name + an accent zap octicon after the
+   name, flagging tasks Cockpit handles natively (output parsed into a tab). */
 .menu-item.special .menu-name {
   font-weight: var(--font-weight-semibold, 600);
 }
@@ -666,8 +666,8 @@ body {
 }
 
 .menu-item .task-mark .oi {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
 }
 
 .menu-foot {
@@ -682,8 +682,8 @@ body {
 }
 
 .menu-foot .task-mark .oi {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 /* ---- Segmented control ---- */

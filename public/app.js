@@ -726,18 +726,18 @@ function classifyTasks() {
   return entries;
 }
 
-// A small accent star-fill octicon used to flag "special" (built-in) tasks. An
-// SVG icon (vs a ★ glyph) aligns cleanly with the text like every other icon.
-function starMark() {
+// A small accent zap octicon flagging "special" (built-in) tasks — i.e. tasks
+// Cockpit handles natively, parsing their output into a dedicated tab.
+function taskBadge() {
   const m = document.createElement("span");
   m.className = "task-mark";
   m.setAttribute("aria-hidden", "true");
-  m.innerHTML = '<svg class="oi"><use href="#oct-star-fill" /></svg>';
+  m.innerHTML = '<svg class="oi"><use href="#oct-zap" /></svg>';
   return m;
 }
 
 // Render one dropdown row: a pin checkbox plus a run label. Special tasks get a
-// star marker after the name (explained by the menu footnote).
+// zap marker after the name (explained by the menu footnote).
 function renderTaskItem(e) {
   const item = document.createElement("div");
   item.className = e.special ? "menu-item special" : "menu-item";
@@ -753,7 +753,7 @@ function renderTaskItem(e) {
   // specials show the task label.
   label.append(document.createTextNode(e.scriptName || e.taskLabel));
   if (e.special) {
-    const mark = starMark();
+    const mark = taskBadge();
     mark.title = "Built-in task";
     label.append(mark);
   }
@@ -782,7 +782,7 @@ function renderScriptsMenu() {
     const note = document.createElement("div");
     note.className = "menu-foot";
     note.append(
-      starMark(),
+      taskBadge(),
       document.createTextNode(" Built-in task — output is parsed into its tab (Tests, Problems…)."),
     );
     menu.append(note);
