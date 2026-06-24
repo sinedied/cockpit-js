@@ -21,8 +21,7 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] settings tab:
   - [x] auto lint / test on load
   - [x] tab order and visibility (change default)
-
-- [ ] Problems tabs
+- [x] Problems tabs
   * include TS errors and lint errors, + fix me with copilot button
 
 - [ ] move theme toggle to settings tab as we now have a proper place for things like this

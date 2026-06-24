@@ -1560,7 +1560,7 @@ function applyEvent(e) {
 }
 
 function connect() {
-  const es = new EventSource(BASE + "/events");
+  const es = new EventSource(`${BASE}/events`);
   es.onmessage = (m) => {
     try {
       applyEvent(JSON.parse(m.data));
