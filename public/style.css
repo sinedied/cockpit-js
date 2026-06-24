@@ -1209,6 +1209,7 @@ main {
   font-weight: 700;
   line-height: 1;
   color: var(--color-white, #fff);
+  background: var(--accent);
 }
 .tab-badge.hidden {
   display: none;
