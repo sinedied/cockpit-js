@@ -1259,7 +1259,7 @@ function renderProblemsBody() {
     const warns = list.filter((d) => d.category === "warning").length;
     const infos = list.length - errs - warns;
     const det = document.createElement("details");
-    det.className = `suite ${errs ? "failed" : warns ? "skipped" : "info"}`;
+    det.className = `suite ${errs ? "failed" : warns ? "warning" : "info"}`;
     det.open = true;
     const head = document.createElement("summary");
     head.className = "suite-head";

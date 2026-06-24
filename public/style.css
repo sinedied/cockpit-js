@@ -1126,6 +1126,10 @@ main {
   color: var(--dim);
 }
 
+.suite.warning .suite-status {
+  color: var(--yellow);
+}
+
 .suite.info .suite-status {
   color: var(--accent);
 }

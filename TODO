@@ -27,9 +27,9 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] no disctinction in pinned script, default pinned scripts can be unpinned too
   * improve: show which scripts it's aliased to
   * order same as package.json
-
-- [ ] bug auto load?
-- [ ] clicking lint button in task list should focus the run/focus the problems tab, not the console tab
+- [x] bug auto load?
+- [x] clicking lint button in task list should focus the run/focus the problems tab, not the console tab
+- [ ] in problems tab: icon in the header with the file name has wrong color for warning (works for errors and info)
 
 - [ ] dependencies: 
   * add link to changelog
