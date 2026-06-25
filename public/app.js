@@ -2343,6 +2343,11 @@ function applyEvent(e) {
 
 function connect() {
   const es = new EventSource(`${BASE}/events`);
+  es.onopen = () => {
+    // The connect snapshot omits projects (enumeration is async), so re-fetch
+    // them on every (re)connect to keep the selector in sync after a reconnect.
+    loadProjects();
+  };
   es.onmessage = (m) => {
     try {
       applyEvent(JSON.parse(m.data));

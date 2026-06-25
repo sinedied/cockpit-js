@@ -83,17 +83,26 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   **two** paths: `root` (the host session dir) and `cwd` (the **active project**, which
   may be a monorepo member the user focused). `Controller.ensureProjectDir(dir)` anchors
   + re-detects and is called first by every wrapped action handler; it re-roots only on a
-  genuine host-dir change, and on first init (or a root change) restores the **persisted
-  focus** for that root (`settings.activeProject`, defaults to the root). Never rely on
+  genuine host-dir change (and **fully tears down** the old project — dev/test-watch/
+  tsserver/debug + `resetProjectState()` — before re-anchoring). On first init or a root
+  change it picks the active dir via `resolveActiveDir()`: the **persisted focus**
+  (`settings.activeProject`) if it still exists, else the root when the root is itself a
+  project, else the first discovered project (a container root with no `package.json`),
+  else the root. Project transitions are serialized by a `_transition` gate so a
+  concurrent action can't read a half-applied `cwd`/`detection` mid-switch. Never rely on
   `process.cwd()` for the project.
 - **Monorepo / multi-project selector**: `src/projects.ts` `enumerateProjects(root)`
   discovers selectable projects under the session root: npm/yarn `workspaces` globs +
-  `pnpm-workspace.yaml` `packages:` globs (each resolved member must contain a
-  `package.json`), **plus** a bounded depth-2 scan for other standalone `package.json`
+  `pnpm-workspace.yaml` `packages:` globs (block-list **and** inline flow-array forms;
+  quote-aware comment stripping; each resolved member must contain a `package.json`),
+  **plus** a bounded depth-2 scan for other standalone `package.json`
   dirs (excluding `node_modules`/`dist`/`build`/`coverage`/`.next`/`.astro`/fixtures/
-  examples/etc.), de-duped. The root is always selectable (group = root pkg name);
+  examples/etc.), de-duped. `!`-negation globs are applied as exclusions (to members
+  **and** the scan), and any dir escaping the root via `..` is dropped. The root is
+  always selectable when it's itself a project (group = root pkg name);
   members group under the root header; standalone scanned dirs group under
-  "Other projects". The header **project selector** (`#project-wrap`, left-most in the
+  "Other projects" (or, when the root has no `package.json`, directly under the container
+  folder name). The header **project selector** (`#project-wrap`, left-most in the
   toolbar with a `.sep` divider) is **conditional** — shown only when `multi` (≥2
   projects), mirroring the Rayfin/Preview gating. Selecting a project calls
   `controller.setActiveProject(dir)`: it validates `dir` against the enumerated list
@@ -101,7 +110,8 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   (dev/test-watch/tsserver/debug), `resetProjectState()`, repoints `cwd`, persists the
   choice under the **root**'s settings (`activeProject`), re-`init()`s, then broadcasts a
   full `snapshot`. Routes: `GET /api/projects` (→ `ProjectsState { root, active, multi,
-  projects }`, fetched on client boot), `POST /api/projects/select { dir }`; ongoing
+  projects }`, fetched on client boot **and on every SSE (re)connect** since the connect
+  `snapshot` omits projects), `POST /api/projects/select { dir }`; ongoing
   updates ride the `projects` SSE event. `get_status` carries a read-only `projects`
   block (active + list) so the agent knows the focus; there is **no agent action to
   switch** (human-facing only, like Rayfin). **Deps caveat**: install/audit/outdated

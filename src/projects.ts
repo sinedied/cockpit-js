@@ -78,23 +78,66 @@ async function workspacePatterns(dir: string, pkg: PackageJson | null): Promise<
   return out;
 }
 
-// Minimal pnpm-workspace.yaml parser: pull the string entries under the
-// top-level `packages:` list. We only need the glob strings, so a dependency-
-// free line scan is enough (avoids pulling in a YAML lib).
+// Strip a YAML line comment, honouring quotes so a `#` inside a quoted glob
+// (e.g. "packages/#internal") isn't truncated.
+function stripYamlComment(line: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === "#") {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+function unquote(s: string): string {
+  const t = s.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+// Parse a YAML flow sequence (`["a", "b"]`) into its string items.
+function parseFlowSeq(s: string): string[] {
+  const inner = s.trim().replace(/^\[/, "").replace(/\]$/, "");
+  if (!inner.trim()) return [];
+  return inner
+    .split(",")
+    .map((p) => unquote(p))
+    .filter((p) => p.length > 0);
+}
+
+// Minimal pnpm-workspace.yaml reader: pull the string entries under the
+// top-level `packages:` key, supporting both the block-list form and the inline
+// flow-array form. We only need the glob strings, so a dependency-free scan is
+// enough (avoids pulling in a YAML lib).
 function parsePnpmPackages(yaml: string): string[] {
   const lines = yaml.split(/\r?\n/);
   const out: string[] = [];
   let inPackages = false;
   for (const raw of lines) {
-    const line = raw.replace(/#.*$/, "");
-    if (/^packages\s*:/.test(line)) {
-      inPackages = true;
+    const line = stripYamlComment(raw);
+    const head = /^packages\s*:(.*)$/.exec(line);
+    if (head) {
+      const inline = head[1].trim();
+      if (inline.startsWith("[")) {
+        out.push(...parseFlowSeq(inline));
+        inPackages = false;
+      } else {
+        inPackages = true;
+      }
       continue;
     }
     if (inPackages) {
       const m = /^\s*-\s*(.+?)\s*$/.exec(line);
       if (m) {
-        out.push(m[1].replace(/^['"]|['"]$/g, ""));
+        out.push(unquote(m[1]));
         continue;
       }
       // A non-list, non-blank line at indent 0 ends the packages block.
@@ -102,6 +145,44 @@ function parsePnpmPackages(yaml: string): string[] {
     }
   }
   return out;
+}
+
+// True when `dir` is the root itself or a descendant of it. Rejects `..`-escaping
+// workspace globs (e.g. "../sibling") that would anchor Cockpit outside the
+// host session root.
+function within(root: string, dir: string): boolean {
+  const rel = path.relative(root, dir);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function relPosix(root: string, dir: string): string {
+  return path.relative(root, dir).split(path.sep).join("/");
+}
+
+// Compile a workspace glob (POSIX-style, relative to root) to an anchored
+// RegExp. Supports `**` (any descendants), `*` (one path segment) and `?`.
+function globToRegExp(glob: string): RegExp {
+  const norm = glob.replace(/\\/g, "/").replace(/\/+$/, "");
+  let re = "";
+  for (let i = 0; i < norm.length; i++) {
+    const c = norm[i];
+    if (c === "*") {
+      if (norm[i + 1] === "*") {
+        re += ".*";
+        i++;
+        if (norm[i + 1] === "/") i++;
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+    } else if ("\\^$+.()|{}[]".includes(c)) {
+      re += `\\${c}`;
+    } else {
+      re += c;
+    }
+  }
+  return new RegExp(`^${re}$`);
 }
 
 // Resolve one workspace glob pattern to concrete directories. Supports the
@@ -184,12 +265,21 @@ export async function enumerateProjects(root: string): Promise<ProjectInfo[]> {
     });
   }
 
-  // Declared workspace members, grouped under the root's name.
+  // Declared workspace members, grouped under the root's name. Negation patterns
+  // (`!…`) are collected and applied as exclusions; everything stays under root.
   const patterns = await workspacePatterns(root, rootPkg);
+  const positives = patterns.filter((p) => !p.startsWith("!"));
+  const excludes = patterns
+    .filter((p) => p.startsWith("!"))
+    .map((p) => globToRegExp(p.slice(1).replace(/\/+$/, "")));
+  const isExcluded = (dir: string): boolean => {
+    const rel = relPosix(root, dir);
+    return excludes.some((re) => re.test(rel));
+  };
   const members: string[] = [];
-  for (const pat of patterns) {
+  for (const pat of positives) {
     for (const dir of await resolvePattern(root, pat)) {
-      if (!seen.has(dir)) {
+      if (!seen.has(dir) && within(root, dir) && !isExcluded(dir)) {
         seen.add(dir);
         members.push(dir);
       }
@@ -207,11 +297,14 @@ export async function enumerateProjects(root: string): Promise<ProjectInfo[]> {
     });
   }
 
-  // Standalone packages found by scanning, that aren't already workspace members.
-  // When the root is itself a project they go under "Other projects"; when the
-  // root is just a container (no package.json) they head up under its name.
+  // Standalone packages found by scanning, that aren't already workspace members
+  // and aren't explicitly excluded. When the root is itself a project they go
+  // under "Other projects"; when the root is just a container (no package.json)
+  // they head up under its name.
   const scannedGroup = rootPkg ? OTHER_GROUP : rootName;
-  const scanned = (await scanForPackages(root, SCAN_DEPTH)).filter((d) => !seen.has(d)).sort();
+  const scanned = (await scanForPackages(root, SCAN_DEPTH))
+    .filter((d) => !seen.has(d) && within(root, d) && !isExcluded(d))
+    .sort();
   for (const dir of scanned) {
     seen.add(dir);
     const pkg = await readJson<PackageJson>(path.join(dir, "package.json"));

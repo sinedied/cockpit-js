@@ -57,6 +57,43 @@ describe("enumerateProjects — workspaces", () => {
     // pnpm-workspace.yaml marks the root as a workspace root.
     expect(out.find((p) => p.rel === ".")?.isWorkspaceRoot).toBe(true);
   });
+
+  it("reads the inline flow-array form of pnpm packages and ignores comments", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "np-pnpm-flow-"));
+    await pkg(root, { name: "flow-root" });
+    await writeFile(
+      path.join(root, "pnpm-workspace.yaml"),
+      'packages: ["apps/*"] # only the apps\n',
+    );
+    await pkg(path.join(root, "apps/web"), { name: "web" });
+
+    const out = await enumerateProjects(root);
+    expect(out.map((p) => p.name)).toEqual(["flow-root", "web"]);
+    expect(out.find((p) => p.rel === ".")?.isWorkspaceRoot).toBe(true);
+  });
+
+  it("applies `!` negation patterns as exclusions", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "np-neg-"));
+    await pkg(root, { name: "root", workspaces: ["packages/*", "!packages/experimental"] });
+    await pkg(path.join(root, "packages/keep"), { name: "keep" });
+    await pkg(path.join(root, "packages/experimental"), { name: "experimental" });
+
+    const out = await enumerateProjects(root);
+    // The excluded package must not reappear via the standalone scan either.
+    expect(out.map((p) => p.name)).toEqual(["root", "keep"]);
+  });
+
+  it("ignores workspace globs that escape the root with `..`", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "np-escape-"));
+    root = path.join(base, "app");
+    await pkg(root, { name: "app", workspaces: ["../sibling"] });
+    await pkg(path.join(base, "sibling"), { name: "sibling" });
+
+    const out = await enumerateProjects(root);
+    expect(out.map((p) => p.name)).toEqual(["app"]);
+    await rm(base, { recursive: true, force: true });
+    root = "";
+  });
 });
 
 describe("enumerateProjects — scan", () => {
@@ -103,6 +140,19 @@ describe("enumerateProjects — scan", () => {
     const out = await enumerateProjects(root);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ name: "solo", rel: "." });
+  });
+
+  it("groups scanned packages under the container name when the root has no package.json", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "np-container-"));
+    const base = path.basename(root);
+    await pkg(path.join(root, "frontend"), { name: "frontend" });
+    await pkg(path.join(root, "backend"), { name: "backend" });
+
+    const out = await enumerateProjects(root);
+    // No root entry (it isn't a project); children grouped under the folder name.
+    expect(out.map((p) => p.name)).toEqual(["backend", "frontend"]);
+    expect(out.every((p) => p.group === base)).toBe(true);
+    expect(out.some((p) => p.rel === ".")).toBe(false);
   });
 });
 
@@ -153,6 +203,22 @@ describe("Controller.setActiveProject", () => {
 
     // Re-selecting the same project is a no-op success.
     expect((await controller.setActiveProject(member)).ok).toBe(true);
+
+    controller.stopTsServer();
+  });
+
+  it("focuses the first discovered project when the root has no package.json", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "np-container-ctl-"));
+    await pkg(path.join(root, "frontend"), { name: "frontend" });
+    await pkg(path.join(root, "backend"), { name: "backend" });
+
+    const controller = new Controller(process.cwd(), { autoRun: false });
+    // Host opens the container as the session root; ensureProjectDir should
+    // anchor cwd to a real project rather than the empty container.
+    await controller.ensureProjectDir(root);
+    const first = path.join(root, "backend"); // sorted first
+    expect(controller.cwd).toBe(first);
+    expect(controller.detection?.hasProject).toBe(true);
 
     controller.stopTsServer();
   });

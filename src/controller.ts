@@ -143,6 +143,9 @@ export class Controller {
   _statsPromise: Promise<ProjectStats> | null;
   _rayfin: RayfinState | null;
   _projects: ProjectInfo[] | null;
+  // In-flight project/root transition; concurrent actions await it so they never
+  // read a half-applied cwd/detection during a switch.
+  _transition: Promise<void> | null;
   tsLs: TsLsState;
   lint: LintState;
   _tsClient: TsServerClient | null;
@@ -185,6 +188,7 @@ export class Controller {
     this._statsPromise = null;
     this._rayfin = null;
     this._projects = null;
+    this._transition = null;
     this.tsLs = this.freshTsLs();
     this.lint = this.freshLint();
     this._tsClient = null;
@@ -270,22 +274,40 @@ export class Controller {
   // On the first init for a root — or when the host genuinely switches roots — we
   // restore the persisted focus for that root (default: the root itself).
   async ensureProjectDir(dir?: string): Promise<Detection | null> {
+    // Don't read cwd/detection mid-switch: wait for any in-flight project
+    // transition to settle so a concurrent action never observes a half-applied
+    // switch.
+    if (this._transition) await this._transition.catch(() => {});
     const rootChanged = !!dir && dir !== this.root;
     if (rootChanged) {
+      // A genuine host session-dir change: tear down everything bound to the old
+      // project and reset transient state before re-anchoring (mirrors the
+      // discipline in setActiveProject so nothing leaks across roots).
+      await this.stopDev().catch(() => {});
+      await this.stopTestWatch().catch(() => {});
       this.stopTsServer();
-      this.stopTestWatch().catch(() => {});
+      await this.debugStop().catch(() => {});
+      this.resetProjectState();
       this.root = dir;
       this._projects = null;
     }
     if (rootChanged || !this.detection) {
-      // Restore a previously-focused project for this root (if it still exists),
-      // otherwise focus the root itself.
-      const saved = (await loadSettings(this.root)).activeProject;
-      const list = await this.listProjectDirs();
-      this.cwd = saved && list.includes(saved) ? saved : this.root;
+      this.cwd = await this.resolveActiveDir();
       await this.init();
     }
     return this.detection;
+  }
+
+  // Pick the project to focus for the current root: the persisted selection if it
+  // still exists, else the root itself when it's a project, else the first
+  // discovered project (handles a container root with no package.json), else the
+  // root as a last resort.
+  private async resolveActiveDir(): Promise<string> {
+    const saved = (await loadSettings(this.root)).activeProject;
+    const list = await this.listProjectDirs();
+    if (saved && list.includes(saved)) return saved;
+    if (list.includes(this.root)) return this.root;
+    return list[0] ?? this.root;
   }
 
   async refresh(): Promise<Detection> {
@@ -326,24 +348,38 @@ export class Controller {
   // re-points `cwd`, re-detects, persists the choice per session root, and
   // re-broadcasts a fresh snapshot + projects so the whole UI re-anchors.
   async setActiveProject(dir?: string): Promise<{ ok: boolean; reason?: string }> {
+    // Serialize against any in-flight switch (rapid double-clicks, or an action's
+    // ensureProjectDir) so transitions can't interleave.
+    if (this._transition) await this._transition.catch(() => {});
     if (!dir || typeof dir !== "string") return { ok: false, reason: "No project specified." };
     const list = await this.listProjectDirs();
     if (!list.includes(dir)) return { ok: false, reason: "Unknown project." };
     if (dir === this.cwd) return { ok: true };
-    // Stop everything bound to the previous project's directory.
-    await this.stopDev().catch(() => {});
-    await this.stopTestWatch().catch(() => {});
-    this.stopTsServer();
-    await this.debugStop().catch(() => {});
-    // Reset the per-project transient state so stale lanes / reports / deps from
-    // the previous project don't bleed into the newly-focused one.
-    this.resetProjectState();
-    this.cwd = dir;
-    await saveSettings(this.root, { activeProject: dir });
-    await this.init();
-    // A snapshot re-syncs every tab on the client in one shot.
-    this.broadcast({ type: "snapshot", state: this.getState() });
-    return { ok: true };
+    const run = (async () => {
+      // Stop everything bound to the previous project's directory.
+      await this.stopDev().catch(() => {});
+      await this.stopTestWatch().catch(() => {});
+      this.stopTsServer();
+      await this.debugStop().catch(() => {});
+      // Reset the per-project transient state so stale lanes / reports / deps from
+      // the previous project don't bleed into the newly-focused one.
+      this.resetProjectState();
+      this.cwd = dir;
+      await saveSettings(this.root, { activeProject: dir });
+      await this.init();
+      // A snapshot re-syncs every tab on the client in one shot.
+      this.broadcast({ type: "snapshot", state: this.getState() });
+    })();
+    this._transition = run.then(
+      () => {},
+      () => {},
+    );
+    try {
+      await run;
+      return { ok: true };
+    } finally {
+      this._transition = null;
+    }
   }
 
   // Clear lanes / test report / deps / dev output / fix context so a project
