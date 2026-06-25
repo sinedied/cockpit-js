@@ -1301,8 +1301,12 @@ export class Controller {
     const d = this.detection;
     if (!d?.hasProject || !d.rayfin) return { detected: false };
     if (this._rayfin && !force) return this._rayfin;
-    this._rayfin = await readRayfinState(this.cwd);
-    return this._rayfin;
+    // Capture cwd so a project switch during the async read can't poison the
+    // cache with another project's state.
+    const cwd = this.cwd;
+    const next = await readRayfinState(cwd);
+    if (this.cwd === cwd) this._rayfin = next;
+    return next;
   }
 
   // Re-read the dashboard model and broadcast it (e.g. after a deploy / switch).
@@ -1312,50 +1316,77 @@ export class Controller {
       this._rayfin = null;
       return;
     }
-    this._rayfin = await readRayfinState(this.cwd);
-    this.broadcast({ type: "rayfin:state", rayfin: this._rayfin });
+    const cwd = this.cwd;
+    const next = await readRayfinState(cwd);
+    if (this.cwd !== cwd) return; // project switched mid-read; a fresh detection drives the UI
+    this._rayfin = next;
+    this.broadcast({ type: "rayfin:state", rayfin: next });
   }
 
-  // Run an allow-listed `rayfin` CLI command as a Console lane (rayfin:<cmd>),
-  // streaming output like build/lint. We intentionally do NOT expose these as
-  // agent actions — Rayfin ships its own MCP/CLI/skills the agent already uses.
-  async runRayfinCli(args: unknown): Promise<{ ok: boolean; reason?: string }> {
-    const d = this.detection;
-    if (!d?.hasProject || !d.rayfin) return { ok: false, reason: "Not a Rayfin project." };
-    const valid = validateRayfinArgs(args);
-    if (!valid) return { ok: false, reason: "Unsupported rayfin command." };
-    const id = `rayfin:${valid[0]}`;
-    this.lanes[id] = this.lanes[id] || this.freshLane(id);
-    const lane = this.lanes[id];
-    if (lane.status === "running")
-      return { ok: false, reason: `rayfin ${valid[0]} is already running.` };
-    const argv = rayfinArgv(d.pm, valid);
+  // Shared lane runner for the Rayfin CLI buttons. Streams to the Console like
+  // build/lint, then refreshes the dashboard model. Distinct `laneId`s per
+  // command keep e.g. `dev stop` runnable while `dev start`'s lane is busy.
+  private async runRayfinLane(
+    laneId: string,
+    label: string,
+    argv: string[],
+  ): Promise<{ ok: boolean; reason?: string }> {
+    this.lanes[laneId] = this.lanes[laneId] || this.freshLane(laneId);
+    const lane = this.lanes[laneId];
+    if (lane.status === "running") return { ok: false, reason: `${label} is already running.` };
     lane.status = "running";
-    lane.label = `rayfin ${valid.join(" ")}`;
+    lane.label = label;
     lane.output = [];
     lane.startedAt = Date.now();
     lane.endedAt = null;
-    this.broadcast({ type: "lane:start", lane: id, label: lane.label });
+    this.broadcast({ type: "lane:start", lane: laneId, label });
     const res = await run(argv, {
       cwd: this.cwd,
       onData: (chunk) => {
         pushCapped(lane.output, chunk);
-        this.broadcast({ type: "lane:data", lane: id, chunk });
+        this.broadcast({ type: "lane:data", lane: laneId, chunk });
       },
     });
     lane.exitCode = res.code;
     lane.endedAt = Date.now();
     lane.status = res.code === 0 ? "passed" : "failed";
-    this.broadcast({ type: "lane:end", lane: id, exitCode: res.code, status: lane.status });
+    this.broadcast({ type: "lane:end", lane: laneId, exitCode: res.code, status: lane.status });
     // Any command may change auth / deployments / functions — refresh the model.
     await this.refreshRayfin().catch(() => {});
     return { ok: res.code === 0, reason: res.code === 0 ? undefined : `exit ${res.code}` };
   }
 
-  // Quick workspace switch (rewrites rayfin/.env to the chosen deployment).
-  switchRayfinWorkspace(name: string): Promise<{ ok: boolean; reason?: string }> {
-    if (!name) return Promise.resolve({ ok: false, reason: "No workspace name." });
-    return this.runRayfinCli(["up", "switch", name]);
+  // Run an allow-listed `rayfin` CLI command as a Console lane. We intentionally
+  // do NOT expose these as agent actions — Rayfin ships its own MCP/CLI/skills
+  // the agent already uses.
+  async runRayfinCli(args: unknown): Promise<{ ok: boolean; reason?: string }> {
+    const d = this.detection;
+    if (!d?.hasProject || !d.rayfin) return { ok: false, reason: "Not a Rayfin project." };
+    const valid = validateRayfinArgs(args);
+    if (!valid) return { ok: false, reason: "Unsupported rayfin command." };
+    return this.runRayfinLane(
+      `rayfin:${valid.join(":")}`,
+      `rayfin ${valid.join(" ")}`,
+      rayfinArgv(d.pm, valid),
+    );
+  }
+
+  // Quick workspace switch. The target is validated against the known deployment
+  // list (not the generic SAFE_ARG regex) so names with spaces still switch; it
+  // is spawned as a single argv element, so it cannot inject.
+  async switchRayfinWorkspace(name: string): Promise<{ ok: boolean; reason?: string }> {
+    const d = this.detection;
+    if (!d?.hasProject || !d.rayfin) return { ok: false, reason: "Not a Rayfin project." };
+    const target = (name || "").trim();
+    if (!target) return { ok: false, reason: "No workspace name." };
+    const st = await this.getRayfinState();
+    const known = "deployments" in st && st.deployments.list.some((dpl) => dpl.name === target);
+    if (!known) return { ok: false, reason: `Unknown workspace "${target}".` };
+    return this.runRayfinLane(
+      "rayfin:up:switch",
+      `rayfin up switch ${target}`,
+      rayfinArgv(d.pm, ["up", "switch", target]),
+    );
   }
 
   // ---- Fix with Copilot ---------------------------------------------------

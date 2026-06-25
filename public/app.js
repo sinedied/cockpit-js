@@ -675,17 +675,36 @@ async function loadRayfin(force = false) {
   if (!state.detection?.rayfin) return;
   if (rayfinLoading) return;
   rayfinLoading = true;
+  const det = state.detection;
+  let result = null;
   try {
-    state.rayfin = await api("/api/rayfin/state", { force });
+    result = await api("/api/rayfin/state", { force });
   } finally {
     rayfinLoading = false;
   }
+  // Bail if the project changed while the request was in flight — a fresh
+  // detection event will drive the UI for the new project.
+  if (state.detection !== det) return;
+  state.rayfin = result;
   renderRayfin();
 }
 
+// Only render links for http(s) URLs. Deployment URLs come from project files
+// (rayfin/.deployments.json); escaping the value is not enough — a `javascript:`
+// or `data:` href would still execute on click.
+function safeHttpUrl(href) {
+  try {
+    const u = new URL(href);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function rfLink(label, href, icon = "oct-link-external") {
-  if (!href) return "";
-  return `<a class="rf-link" href="${esc(href)}" target="_blank" rel="noreferrer noopener"
+  const safe = safeHttpUrl(href);
+  if (!safe) return "";
+  return `<a class="rf-link" href="${esc(safe)}" target="_blank" rel="noreferrer noopener"
     ><svg class="oi" aria-hidden="true"><use href="#${icon}" /></svg>${esc(label)}</a>`;
 }
 

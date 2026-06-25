@@ -288,8 +288,11 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   Open-app/Open-Fabric links + switcher, `dab-config.json`/`schema.ts` → data-model viewer,
   `.env` → public vars, `functions/` + connectors) and its buttons run **allow-listed**
   `rayfin` CLI commands as Console **lanes** (`rayfin:<cmd>`, via `npm exec -- rayfin …`),
-  streamed like build/lint. `validateRayfinArgs` gates the allow-list (`SAFE_ARG` regex +
-  `ALLOWED` verbs). The **only** agent touchpoint is a read-only `rayfin` block added to the
+  streamed like build/lint. `validateRayfinArgs` gates an **exact-command** allow-list
+  (`SAFE_ARG` regex + `ALLOWED_COMMANDS` set of full argv shapes) — not just a first-verb
+  check — because the same-origin preview proxy makes `/api/rayfin/cli` reachable from
+  proxied dev-server content; `up switch <name>` is separate (the target is validated
+  against the known deployment list, then spawned as one argv element). The **only** agent touchpoint is a read-only `rayfin` block added to the
   existing `get_status` (detected? dialect, auth methods, signed-in, active workspace,
   app/portal URLs) — detection state, not a CLI duplicate. Detection (`detectRayfin`) is
   cheap (rayfin.yml or `@microsoft/rayfin*` deps → `Detection.rayfin`); the full dashboard

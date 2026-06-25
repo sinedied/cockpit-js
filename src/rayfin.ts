@@ -161,19 +161,26 @@ interface DabEntity {
   permissions?: Array<{ role?: string; actions?: unknown }>;
 }
 
+const isRecord = (x: unknown): x is Record<string, unknown> =>
+  !!x && typeof x === "object" && !Array.isArray(x);
+
 function permissionsFromDab(dab: unknown): Map<string, RayfinPermission[]> {
   const out = new Map<string, RayfinPermission[]>();
-  const entities = (dab as { entities?: Record<string, DabEntity> })?.entities;
-  if (!entities || typeof entities !== "object") return out;
-  for (const [name, ent] of Object.entries(entities)) {
+  const entities = isRecord(dab) ? dab.entities : undefined;
+  if (!isRecord(entities)) return out;
+  for (const [name, raw] of Object.entries(entities)) {
+    const ent = raw as DabEntity;
     const perms: RayfinPermission[] = [];
-    for (const p of ent?.permissions || []) {
-      const actions = Array.isArray(p.actions)
-        ? p.actions.map(String)
-        : typeof p.actions === "string"
-          ? [p.actions]
-          : [];
-      if (p.role) perms.push({ role: String(p.role), actions });
+    if (Array.isArray(ent?.permissions)) {
+      for (const p of ent.permissions) {
+        if (!isRecord(p)) continue;
+        const actions = Array.isArray(p.actions)
+          ? p.actions.map(String)
+          : typeof p.actions === "string"
+            ? [p.actions]
+            : [];
+        if (p.role) perms.push({ role: String(p.role), actions });
+      }
     }
     out.set(name, perms);
   }
@@ -226,8 +233,9 @@ export async function readRayfinState(cwd: string): Promise<RayfinState> {
     deployments?: Record<string, DeploymentRecord>;
   }>(deploymentsPath);
   const active = depsRaw?.active ?? null;
-  const list: RayfinDeployment[] = Object.entries(depsRaw?.deployments || {}).map(
-    ([name, rec]) => ({
+  const list: RayfinDeployment[] = Object.entries(depsRaw?.deployments || {})
+    .filter(([, rec]) => isRecord(rec))
+    .map(([name, rec]) => ({
       name,
       active: name === active,
       itemId: rec.itemId ?? null,
@@ -237,8 +245,7 @@ export async function readRayfinState(cwd: string): Promise<RayfinState> {
       portalUrl: fabricPortalUrl(rec),
       hostingUrl: rec.hostingUrl ?? null,
       deployedAt: rec.deployedAt ?? null,
-    }),
-  );
+    }));
 
   // Data model: parse the schema, then enrich with DAB permissions when present.
   const schemaPath = existsSyncSafe(path.join(dir, "data", "schema.ts"))
@@ -305,29 +312,37 @@ async function listDirs(dir: string): Promise<string[]> {
 
 // ---- CLI argv (allow-list) ------------------------------------------------
 
-// Permitted `rayfin <cmd> [subcommand…]` shapes. Restricting the command surface
-// keeps the human-facing buttons from being repurposed into arbitrary execution.
-const ALLOWED: Record<string, true> = {
-  login: true,
-  logout: true,
-  status: true,
-  dev: true,
-  up: true,
-  functions: true,
-  connector: true,
-  docs: true,
-  "ai-files": true,
-};
+// Exact `rayfin` command shapes the dashboard buttons are allowed to run. An
+// exact-argv allow-list (not just a first-verb check) keeps the loopback
+// /api/rayfin/cli endpoint — which is same-origin-reachable from proxied dev
+// preview content — from being repurposed into arbitrary rayfin operations.
+// The `up switch <deployment>` shape is handled separately (the target is
+// validated against the known deployment list, so it isn't listed here).
+const ALLOWED_COMMANDS: ReadonlySet<string> = new Set([
+  "login",
+  "logout",
+  "dev start",
+  "dev stop",
+  "dev status",
+  "dev db apply",
+  "up",
+  "up status",
+  "up db apply",
+  "functions typegen",
+  "connector list",
+  "ai-files",
+]);
 
 const SAFE_ARG = /^[A-Za-z0-9@._/:+-]+$/;
 
 // Validate + normalize a rayfin argv. Returns the cleaned args, or null when the
-// command is not allow-listed or an argument contains unexpected characters.
+// command is not an allow-listed shape or an argument contains unexpected
+// characters. Use `switchRayfinWorkspace` (controller) for `up switch <name>`.
 export function validateRayfinArgs(args: unknown): string[] | null {
   if (!Array.isArray(args) || !args.length) return null;
   const clean = args.map((a) => String(a).trim());
-  if (!ALLOWED[clean[0]]) return null;
   if (!clean.every((a) => a.length > 0 && SAFE_ARG.test(a))) return null;
+  if (!ALLOWED_COMMANDS.has(clean.join(" "))) return null;
   return clean;
 }
 
