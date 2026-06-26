@@ -71,11 +71,14 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   touches the extension's own `src/` or `public/`. It exists to **dogfood**
   Cockpit's own Dev lane (`npm run dev` → Astro detected → `localhost:4321`
   preview) and web Build (`npm run docs:build`). Edit docs content under
-  `docs/site/src/content/docs/`. **astro is pinned to 6.x**: `@astrojs/starlight`
-  has no astro-7-compatible release yet (its peer wants `astro ^6.4.5`), and astro 7
-  silently breaks `npm run dev` (nested astro-6 `@astrojs/mdx` can't resolve
-  `@astrojs/markdown-remark`) even though `astro build` passes. Revisit when Starlight
-  ships astro 7 support.
+  `docs/site/src/content/docs/`. **astro 7 + `@astrojs/starlight` 0.41.x**: upgraded
+  from astro 6 once Starlight shipped astro-7 support (0.41.1 peer-requires `astro ^7.0.2`
+  and pulls `@astrojs/mdx@^7` + `astro-expressive-code@^0.44`). astro + starlight are
+  **mutually peer-coupled** — bump them together, and after any change verify BOTH
+  `npm run docs:build` AND `npm run dev` (the `npm run check` suite does NOT exercise the
+  docs site). Cockpit's own `update_dependencies` can't do this coupled bump (its
+  per-package bisection rolls them back independently) — upgrade them by hand with a clean
+  resolve (`rm -rf node_modules package-lock.json && npm install`).
 - `.github/extensions/cockpit/extension.mjs` — dog-food wrapper that imports the
   root `extension.mjs` so the repo runs the extension against itself.
 - `e2e/` — **permanent dogfood fixtures**, its own npm **workspace root**
@@ -483,6 +486,15 @@ update-check reads exactly the Releases the pipeline produces — so keep them i
   (b) First semantic-release run defaults to `v1.0.0`; to keep a `0.x` line, seed a `v0.1.0`
   tag first. (c) Validate with `npx semantic-release --dry-run` (needs a token); don't
   trigger a real release as part of unrelated work.
+- **Known advisory — undici (high), unfixable via npm tooling, accepted:** `semantic-release`
+  core-depends on `@semantic-release/npm` → `npm` (latest), which **bundles** an old
+  `undici` inside its own tarball (`node_modules/npm/node_modules/undici`). Bundled deps
+  can't be rewritten by npm `overrides` or `npm audit fix` (both verified no-ops), and npm
+  is already at its latest release. It surfaces in `npm audit` / the Cockpit audit as 1 high.
+  **Risk ≈ 0:** it only runs in the CI release job (node-gyp during native builds), never in
+  the shipped extension, and `@semantic-release/npm` runs `npmPublish: false`. The only way
+  to eliminate it is to drop semantic-release for **release-please** (a GitHub Action with
+  zero devDeps). Left as-is intentionally; don't chase it with overrides.
 
 
 

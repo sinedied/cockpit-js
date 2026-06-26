@@ -43,13 +43,13 @@
     "check": "biome check . && npm run build && npm run smoke && npm run test"
   },
   "devDependencies": {
-    "@astrojs/starlight": "^0.40.0",
+    "@astrojs/starlight": "^0.41.1",
     "@biomejs/biome": "^2.5.1",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^4.1.9",
-    "astro": "^6.4.8",
+    "astro": "^7.0.3",
     "cytoscape": "^3.34.0",
     "cytoscape-fcose": "^2.2.0",
     "semantic-release": "^25.0.5",
