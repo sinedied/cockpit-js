@@ -1,5 +1,5 @@
 // Monorepo / multi-project discovery + project switching tests.
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -204,6 +204,35 @@ describe("Controller.setActiveProject", () => {
     // Re-selecting the same project is a no-op success.
     expect((await controller.setActiveProject(member)).ok).toBe(true);
 
+    controller.stopTsServer();
+  });
+
+  it("re-runs the on-load auto-tasks when switching back to an already-visited project", async () => {
+    // Regression: resetProjectState() wipes the per-project caches on every switch,
+    // but the once-per-cwd `_autoRanFor` guard used to skip the auto-tasks on a
+    // revisit, leaving the Problems/Deps pills empty until a manual refresh.
+    root = await mkdtemp(path.join(os.tmpdir(), "np-autoload-"));
+    await pkg(root, { name: "root", workspaces: ["packages/*"] });
+    await pkg(path.join(root, "packages/a"), { name: "a" });
+    const member = path.join(root, "packages/a");
+
+    const controller = new Controller(root, { autoRun: true });
+    // Spy out the real auto-tasks (audit / lint / tsserver / network) and just
+    // count how many times an entry primes them.
+    const spy = vi
+      .spyOn(controller as unknown as { runAutoTasks: () => Promise<void> }, "runAutoTasks")
+      .mockResolvedValue();
+
+    await controller.init();
+    expect(spy).toHaveBeenCalledTimes(1); // first visit (root)
+
+    expect((await controller.setActiveProject(member)).ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(2); // first visit (member)
+
+    expect((await controller.setActiveProject(root)).ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(3); // revisit (root) — was 2 before the fix
+
+    spy.mockRestore();
     controller.stopTsServer();
   });
 

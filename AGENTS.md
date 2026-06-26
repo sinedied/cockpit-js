@@ -241,6 +241,28 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   making the Problems pill show on load/after reload. It sets `_autoRunning` so the
   `lane:start` events carry `auto: true`; the client then populates results/badges
   **without** switching the active tab (explicit user runs still switch).
+  **`init(force)` vs the `_autoRanFor` guard (the project-switch revisit bug):**
+  every path that calls `resetProjectState()` (it wipes `this.deps`/`lint`/`tsLs`/`test`)
+  must re-prime via `init(true)`, because `_autoRanFor` is a once-per-cwd-per-process set
+  that is **never cleared by reset**. Without the force, switching **back** to an
+  already-visited project (A→B→A) clears the caches but the guard skips `runAutoTasks()`,
+  leaving the Problems/Deps pills empty until a manual refresh. So:
+  `setActiveProject()` → `init(true)`; `ensureProjectDir()` root-change branch →
+  `init(rootChanged)`; first-ever detection of a root stays `init(false)` so the guard
+  still dedups concurrent canvas opens of the same root. Rule of thumb: **`_autoRanFor`
+  only dedups redundant re-detection of the *same* live project; any reset → `init(force)`.**
+- **`_projectGen` — stale-result guard for fire-and-forget tasks**: because `init(true)`
+  now re-runs the on-load tasks on **every** switch and `runAutoTasks()` is fire-and-forget,
+  a slow run started for project A (e.g. `npm audit`, `npm outdated`, a test run, tsserver
+  analysis) could finish **after** the user switched to B and publish A's results into B's
+  pills. `_projectGen` is a counter bumped in `resetProjectState()` (the single choke point
+  for both switch paths). Each result-publishing method captures it before its `await` and
+  **discards the write/broadcast if it changed mid-run**: `deps.listOutdated`/`deps.runAudit`
+  (before writing `controller.deps.*`), `runTests` (before `this.test.report = …`), and
+  `refreshDiagnostics` (before `setTsState`). It's the deps/test/TS analogue of `_lintGen`
+  (which `runLintLoop` already uses, bumped in `stopTsServer`). When adding any new
+  fire-and-forget task that mutates per-project state, capture `_projectGen` at entry and
+  gate the publish the same way.
 - **Lint is a Problems-tab concept**: clicking the **Lint** task (dropdown row or pinned
   button) focuses/refreshes the **Problems** tab (`runTask()` → `showTab("problems")`),
   it does NOT run the lint lane into the Console. The lint *lane* (`/api/lane {id:"lint"}`,

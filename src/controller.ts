@@ -187,6 +187,11 @@ export class Controller {
   _testWatch: TestWatchSession | null;
   _autoRanFor: Set<string>;
   _autoRunning: boolean;
+  // Bumped on every project switch (in resetProjectState). Auto-task / refresh
+  // methods capture it and discard their results if it changed mid-run, so a slow
+  // run started for the previous project can't publish stale deps/test/diagnostics
+  // into the newly-focused one (the deps/test/TS analogue of `_lintGen`).
+  _projectGen: number;
   // Self-update: the running version + distribution repo, plus a cached check
   // result (the process is long-lived, so we throttle network checks).
   version: string;
@@ -245,6 +250,7 @@ export class Controller {
     this._testWatch = null;
     this._autoRanFor = new Set();
     this._autoRunning = false;
+    this._projectGen = 0;
   }
 
   freshTsLs(): TsLsState {
@@ -290,16 +296,22 @@ export class Controller {
     this.broadcast({ type: "log", level, message });
   }
 
-  async init(): Promise<Detection> {
+  // `force` re-primes the on-load tasks even for an already-seen cwd. The callers
+  // that wipe per-project state (`setActiveProject`, and the root-change branch of
+  // `ensureProjectDir`) must pass it: they just cleared this.deps/lint/tsLs/test via
+  // `resetProjectState`, so the Problems/Deps pills would otherwise stay empty on a
+  // revisit. The default-`false` path keeps the `_autoRanFor` guard, which dedups
+  // redundant re-detection of the *same* project (e.g. concurrent canvas opens).
+  async init(force = false): Promise<Detection> {
     this.detection = await detect(this.cwd);
     this.invalidateStats();
     this._rayfin = null;
     if (this.detection.hasProject) this.detection.availability = laneAvailability(this.detection);
     this.broadcast({ type: "detection", detection: this.detection });
     this.broadcast({ type: "projects", projects: await this.getProjects() });
-    // Fire the configured on-load tasks once per project path, after the first
-    // successful project detection (a shared process can serve several projects).
-    if (this.autoRun && !this._autoRanFor.has(this.cwd) && this.detection.hasProject) {
+    // Fire the configured on-load tasks, once per project path unless forced, after
+    // a successful project detection (a shared process can serve several projects).
+    if (this.autoRun && (force || !this._autoRanFor.has(this.cwd)) && this.detection.hasProject) {
       this._autoRanFor.add(this.cwd);
       this.runAutoTasks().catch((e) => this.log(String(e), "error"));
     }
@@ -335,7 +347,9 @@ export class Controller {
     }
     if (rootChanged || !this.detection) {
       this.cwd = await this.resolveActiveDir();
-      await this.init();
+      // A genuine root change just tore down + reset the old project, so force the
+      // on-load tasks to re-prime; first-ever detection keeps the dedup guard.
+      await this.init(rootChanged);
     }
     return this.detection;
   }
@@ -408,7 +422,9 @@ export class Controller {
       this.resetProjectState();
       this.cwd = dir;
       await saveSettings(this.root, { activeProject: dir });
-      await this.init();
+      // State was just wiped, so force the on-load tasks to re-prime — otherwise a
+      // switch back to an already-visited project would leave the pills empty.
+      await this.init(true);
       // A snapshot re-syncs every tab on the client in one shot.
       this.broadcast({ type: "snapshot", state: this.getState() });
     })();
@@ -427,6 +443,9 @@ export class Controller {
   // Clear lanes / test report / deps / dev output / fix context so a project
   // switch starts from a clean slate (mirrors the constructor's fresh state).
   private resetProjectState(): void {
+    // Invalidate any in-flight auto-task / refresh so it can't publish stale
+    // deps/test/diagnostics into the project we're about to switch to.
+    this._projectGen++;
     this.lanes = {};
     for (const id of ONE_SHOT_LANES) this.lanes[id] = this.freshLane(id);
     this.lanes.update = this.freshLane("update");
@@ -609,6 +628,7 @@ export class Controller {
       auto: this._autoRunning,
     });
 
+    const gen = this._projectGen;
     const res = await run(resolved.argv, {
       cwd: this.cwd,
       onData: (chunk) => {
@@ -633,6 +653,10 @@ export class Controller {
       report = parseTextCounts(lane.output.join(""));
     }
     if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+
+    // A project switch happened mid-run — discard so the previous project's report
+    // doesn't surface under the newly-focused one.
+    if (gen !== this._projectGen) return { ok: false, reason: "Project changed.", report };
 
     this.test.report = report;
     lane.exitCode = res.code;
@@ -1122,8 +1146,12 @@ export class Controller {
     this.tsLs.reason = null;
     this.emitTsStatus();
     if (reload) client.reload();
+    const gen = this._projectGen;
     try {
       const diagnostics = await client.getProjectDiagnostics();
+      // A project switch happened mid-analysis — discard so the previous project's
+      // diagnostics don't surface under the newly-focused one.
+      if (gen !== this._projectGen) return;
       const errorCount = diagnostics.filter((x) => x.category === "error").length;
       const warningCount = diagnostics.filter((x) => x.category === "warning").length;
       this.setTsState({
@@ -1135,6 +1163,7 @@ export class Controller {
         reason: null,
       });
     } catch (err) {
+      if (gen !== this._projectGen) return;
       this.setTsState({
         ...this.tsLs,
         status: "error",

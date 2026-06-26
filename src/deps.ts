@@ -187,6 +187,7 @@ export async function readDevSet(cwd: string): Promise<Set<string>> {
 export async function listOutdated(controller: Controller): Promise<OutdatedResult> {
   const d = controller.detection;
   if (!d?.hasProject) return { list: [], supported: false };
+  const gen = controller._projectGen;
   const { argv, format } = pmOutdated(d.pm);
   controller.broadcast({ type: "deps:outdated-start" });
   const res = await run(argv, { cwd: controller.cwd });
@@ -208,6 +209,9 @@ export async function listOutdated(controller: Controller): Promise<OutdatedResu
       e.links = await buildDepLinks(controller.cwd, e.name);
     }),
   );
+  // A project switch happened mid-run — discard so we don't show the previous
+  // project's outdated list under the newly-focused one.
+  if (gen !== controller._projectGen) return { list, supported };
   controller.deps.outdated = {
     list,
     supported,
@@ -293,10 +297,14 @@ function severityRank(s: string): number {
 export async function runAudit(controller: Controller): Promise<AuditResult> {
   const d = controller.detection;
   if (!d?.hasProject) return { vulnerabilities: [], metadata: null, supported: false };
+  const gen = controller._projectGen;
   const { argv } = pmAudit(d.pm);
   controller.broadcast({ type: "deps:audit-start" });
   const res = await run(argv, { cwd: controller.cwd });
   const parsed = parseAudit(res.output);
+  // A project switch happened mid-run — discard so the previous project's audit
+  // doesn't surface under the newly-focused one.
+  if (gen !== controller._projectGen) return { ...parsed, at: Date.now() };
   controller.deps.audit = { ...parsed, at: Date.now() };
   controller.broadcast({ type: "deps:audit", audit: controller.deps.audit });
   return controller.deps.audit;

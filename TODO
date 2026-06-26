@@ -46,25 +46,26 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] auto update
 - [x] Design pass: Fix with copilot button consistency, with a nice gradient border
   * Store design rules, understanding and decisions in AGENTS.md
+- [x] rayfin tab:
+  * if not deployed, need to input workspace name, id or URL
+  * deploy button css issue on hover (all others blue buttons have this issue)
+- [x] security fix with copilot: first try with audit fix (if using NPM), then if that fails, try to use copilot to fix the security issues. 
+  * also layout issue, see screenshot
 
 - [ ] rayfin real world app test
 
-- [ ] rayfin tab:
-  * if not deployed, need to input workspace name, id or URL
-  * deploy button css issue on hover (all others blue buttons have this issue)
 
 - [ ] Rayfin tab: local dev not fully implemented yet, its local dev with remote backend. Hide the local options for now (don't remove them, as they will be needed later)
 
-- [ ] security fix with copilot: first try with audit fix (if using NPM), then if that fails, try to use copilot to fix the security issues. 
-  * also layout issue, see screenshot
 
 
 
 
 
 - [ ] skill readme/prep release
-  - [ ] add skills (README for example)
+  - [x] add skills (README for example)
+  - [x] css
   - [ ] logo
-  - [ ] css
+  - [ ] readme
 
 
