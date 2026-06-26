@@ -43,13 +43,19 @@ Instead of pills, extract proper information about the project. Suggest useful i
 - [x] monorepo handling and project selector in header
 - [x] Rayfin integration (rayfin tab)
   * Search about the new Microsoft Rayfin product, and think about its purpose what could be provided in a Rayfin tab to best help users building Rayfin applications with Copilot.
-
-- [ ] Design pass: Fix with copilot button consistency, with a nice gradient border
+- [x] auto update
+- [x] Design pass: Fix with copilot button consistency, with a nice gradient border
   * Store design rules, understanding and decisions in AGENTS.md
 
 - [ ] rayfin real world app test
+  * if not deployed, need to input workspace name, id or URL
+  * local dev not fully implemented yet, its local dev with remote backend. Hide the local options for now (don't remove them, as they will be needed later)
 
-- [ ] auto update
+- [ ] security fix with copilot: first try with audit fix (if using NPM), then if that fails, try to use copilot to fix the security issues. 
+  * also layout issue, see screenshot
+
+
+
 
 
 - [ ] skill readme/prep release

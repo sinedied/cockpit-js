@@ -928,16 +928,16 @@ function rfGraphLayout() {
 // Run the graph layout and frame the whole graph. Done explicitly (not via the
 // cytoscape constructor's inline `layout`) so a layout failure can't leave nodes
 // stacked at the origin: on any error we fall back to the always-present built-in
-// `cose`, and we always `fit()` so every entity stays in view.
+// `cose`, and we always fit the view so every entity stays in view.
 function rfRunGraphLayout(cy) {
-  const fit = () => {
+  const fitView = () => {
     try {
       cy.fit(undefined, 30);
     } catch {}
   };
   const run = (cfg) => {
     const lay = cy.layout(cfg);
-    lay.one("layoutstop", fit);
+    lay.one("layoutstop", fitView);
     lay.run();
   };
   try {
@@ -946,7 +946,7 @@ function rfRunGraphLayout(cy) {
     try {
       run({ name: "cose", animate: false, padding: 18 });
     } catch {
-      fit();
+      fitView();
     }
   }
 }
