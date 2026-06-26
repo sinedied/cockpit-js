@@ -386,7 +386,7 @@
           <span id="console-label" class="mono dim">Run a task to see output here.</span>
           <span class="grow"></span>
           <span id="console-status" class="status-chip"></span>
-          <button type="button" id="console-fix" class="fix-btn hidden">
+          <button type="button" id="console-fix" class="copilot-btn hidden">
             <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix with Copilot
           </button>
         </div>
@@ -400,7 +400,7 @@
           <span id="problems-chips" class="chips"></span>
           <span class="grow"></span>
           <span id="problems-status" class="status-chip"></span>
-          <button type="button" id="problems-fix" class="fix-btn hidden">
+          <button type="button" id="problems-fix" class="copilot-btn hidden">
             <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix all with Copilot
           </button>
           <button type="button"
@@ -423,7 +423,7 @@
           <div class="panel-head">
             <div id="test-chips" class="chips"></div>
             <span class="grow"></span>
-            <button type="button" id="test-fix" class="fix-btn hidden">
+            <button type="button" id="test-fix" class="copilot-btn hidden">
               <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix with Copilot
             </button>
             <label id="test-watch-toggle" class="switch" title="Re-run tests automatically on file changes">
@@ -479,7 +479,7 @@
             </button>
           </span>
           <span class="grow"></span>
-          <button type="button" id="dev-fix" class="lane-btn hidden"
+          <button type="button" id="dev-fix" class="copilot-btn hidden"
             title="Capture a screenshot of the app and send it to Copilot"
           >
             <svg class="oi" aria-hidden="true"><use href="#oct-device-camera" /></svg>Fix with Copilot
@@ -521,7 +521,7 @@
               aria-label="Prompt for Copilot"
             />
             <button type="button" id="capture-cancel" class="lane-btn">Cancel</button>
-            <button type="button" id="capture-send" class="lane-btn primary">
+            <button type="button" id="capture-send" class="copilot-btn">
               <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Send to Copilot
             </button>
           </div>
@@ -708,7 +708,7 @@
               <button type="button" data-scope="default" class="on">Default</button>
               <button type="button" data-scope="latest">Latest</button>
             </div>
-            <button type="button" id="deps-update" class="lane-btn primary">
+            <button type="button" id="deps-update" class="copilot-btn">
               <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Update with Copilot
             </button>
             <button type="button"
@@ -731,7 +731,7 @@
             </h3>
             <div id="audit-summary" class="audit hidden"></div>
             <span class="grow"></span>
-            <button type="button" id="deps-audit-fix" class="lane-btn primary">
+            <button type="button" id="deps-audit-fix" class="copilot-btn">
               <svg class="oi" aria-hidden="true"><use href="#oct-copilot" /></svg>Fix with Copilot
             </button>
             <button type="button"

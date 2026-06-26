@@ -418,3 +418,79 @@ The agent dev loop for any change:
   badge) feeds both the dropdown items (each shows its own count) and `syncTabMoreBadge()`,
   which collapses hidden badges into a single **severity dot** on `⋯` (red > yellow > blue,
   no number — counts across tabs aren't summable).
+
+## Design system
+
+The canvas UI targets the **GitHub App look** in both light and dark. All visuals are
+hand-rolled in `public/index.html` + `public/style.css` (the host mirrors its own theme
+tokens onto the canvas document, but this project uses its **own** Primer-aligned token
+set, not the host semantic tokens — stay within this vocabulary).
+
+### Theme tokens (`:root` in `style.css`)
+Surfaces `--bg` / `--bg-elev` / `--bg-inset`; lines `--border` / `--border-muted`; text
+`--text` / `--dim`; brand `--accent` / `--accent-emphasis` / `--on-emphasis` (`#fff`);
+status `--green` / `--red` / `--yellow`; purple `--purple` (foreground/outline) and
+`--copilot` (filled emphasis purple — see buttons); console `--console-bg` / `--console-fg`;
+plus `--radius` (6px), `--mono`, `--focus-ring`, `--shadow-sm`. **Never hardcode hex** in
+rules — add/extend a token (the only deliberate literals are `#fff`/`#000` inside
+`color-mix()` lighten/darken and overlay scrims).
+
+### Theming model (3 blocks, keep in sync)
+1. `:root` — the single source of truth for **light** tokens.
+2. `@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) }` — dark when
+   the OS is dark **and** the user hasn't forced Light (the `:not` guard makes the Light
+   toggle win over OS dark).
+3. `:root[data-theme="dark"]` — dark when the user explicitly forces Dark.
+
+The toggle (`applyTheme()` in `app.js`) sets/removes `data-theme` = `light` | `dark` |
+(absent = auto). The two dark blocks (2 & 3) carry **identical** values — change both.
+Theme-agnostic or `--accent`-derived tokens (`--on-emphasis`, `--radius`, `--mono`,
+`--shadow-sm`, `--focus-ring`) live only in `:root`: `var()` resolves lazily at use, so
+they follow the active theme automatically. CSS `light-dark()` would collapse this to one
+block but is intentionally **not** used yet (needs Chrome 123+; webview baseline unconfirmed).
+
+### Button taxonomy
+- `.lane-btn` — the default action button (elevated surface, hairline border). Modifiers:
+  `.primary` = `--accent-emphasis` fill (**blue**, the primary non-Copilot CTA);
+  `.task` = quiet transparent/muted.
+- `.icon-btn` / `.ghost-btn` — square icon-only buttons (refresh, kebab, etc.).
+- `.copilot-btn` — **the one filled purple-gradient variant for the recurring Copilot
+  handoffs in the inner loop: Fix / Send / Update** (`#console-fix`, `#problems-fix`,
+  `#test-fix`, `#dev-fix`, `#capture-send`, `#deps-update`, `#deps-audit-fix`). Glossy
+  GitHub-style fill (`--copilot` top-weighted gradient + 1px darker border + inset top
+  highlight), white text/icon, `.lane-btn` metrics, a **purple** focus ring (not the
+  accent one). It is the only filled purple control. It shares the project-scoped
+  `setControlsEnabled()` disable path with `.lane-btn` (the buttons live in
+  project-scoped tabs), so keep both classes in that selector.
+- `.fix-btn` — compact purple **outline** variant for inline per-item fixes (e.g.
+  `.diag-fix`, the hover-revealed icon button on each diagnostic row).
+
+**Rule: recurring Copilot handoffs (Fix/Send/Update) = purple.** Filled `.copilot-btn`
+for the prominent ones, outline `.fix-btn` for compact inline ones. Blue `.primary` is
+reserved for non-Copilot primary actions. Deliberate exception: `#rf-create` ("Start a
+new Rayfin project") also sends a prompt to Copilot but stays blue `.lane-btn.primary` —
+it's a one-off onboarding/create primary action shown in the no-project intro state, not
+a recurring inner-loop handoff. Revisit if more "create" handoffs appear (they'd want
+their own treatment rather than diluting the Fix/Send/Update purple).
+
+### Interaction states (shared groups near the top of `style.css`)
+- **`cursor` is forbidden everywhere** (`cursor: default !important` on `*`): the native
+  Copilot app and the webview fight over the pointer cursor and flicker. Hover / press /
+  focus visuals are the affordance instead.
+- Hover = subtle bg/border shift + `--shadow-sm` (filled buttons brighten). Press
+  (`:active`) = `translateY(1px)` + darken (`brightness(.94)` for filled). Keyboard
+  `:focus-visible` = `0 0 0 3px var(--focus-ring)` (accent) for most controls, a purple
+  ring for `.copilot-btn`; mouse clicks leave no persistent ring. List rows
+  (`.rf-entity-row`) show selection via `.active` (bg tint), focus via a subtle bg — no
+  ring. Disabled controls are inert (no lift/press). `@media (prefers-reduced-motion)`
+  collapses all transitions.
+
+### Shape & icon conventions
+- Boxes/cards/buttons use `var(--radius)`; pills/chips use `999px`; avatars/dots `50%`;
+  inline code `4px`. Cards/sections = `--bg-elev` surface + `--border` hairline.
+- Chips (`.chip`, `.status-chip`) = `999px`, colored border + colored text per status
+  (pass→green, fail→red, paused→accent, …), no fill.
+- Icons are octicons from the inline `<svg>` sprite: `<svg class="oi"><use href="#oct-…"/></svg>`,
+  14px, `--dim` by default, `--accent` on `.lane-btn` hover, `--on-emphasis` on filled
+  buttons. Keep an informative icon even when restyling (e.g. `#dev-fix` keeps its camera
+  icon to signal the screenshot step, while adopting the `.copilot-btn` color).

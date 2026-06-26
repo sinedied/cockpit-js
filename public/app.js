@@ -396,7 +396,9 @@ function badge(text, muted) {
 }
 
 function setControlsEnabled(enabled) {
-  $$(".lane-btn").forEach((b) => {
+  // .copilot-btn shares this project-scoped disable path with .lane-btn (the
+  // Fix/Send/Update handoffs were .lane-btn before the design pass).
+  $$(".lane-btn, .copilot-btn").forEach((b) => {
     b.disabled = !enabled;
   });
   $("#scripts-toggle").disabled = !enabled;

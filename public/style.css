@@ -1,7 +1,18 @@
-/* GitHub Primer-aligned theme. Light is the default; dark applies via the OS
-   setting (prefers-color-scheme) or an explicit [data-theme] override set by the
-   theme toggle. The host does not expose its in-app theme, so OS appearance is
-   the best automatic signal. */
+/* GitHub Primer-aligned theme. Light is the single source of truth (:root); dark
+   applies via the OS setting (prefers-color-scheme) or an explicit [data-theme=dark]
+   override from the theme toggle. The host does not expose its in-app theme, so OS
+   appearance is the best automatic signal.
+
+   Theming model (kept to 3 blocks, selector-only — no CSS light-dark() yet because
+   the webview baseline is unconfirmed):
+     1. :root                                    -> light tokens (default)
+     2. @media dark + :root:not([data-theme=light]) -> dark when OS is dark AND the
+        user hasn't explicitly forced Light (the :not guard makes the Light toggle win)
+     3. :root[data-theme="dark"]                 -> dark when the user forces Dark
+   The two dark blocks (2 & 3) carry identical values — keep them in sync. Tokens that
+   reference --accent (--focus-ring) or are theme-agnostic (--on-emphasis, --radius,
+   --mono, --shadow-sm) live only in :root: var() resolves lazily at use time, so they
+   pick up the overridden --accent automatically. */
 :root {
   --bg: #ffffff;
   --bg-elev: #f6f8fa;
@@ -17,18 +28,20 @@
   --red: #cf222e;
   --yellow: #9a6700;
   --purple: #8250df;
+  --copilot: #8250df;
   --console-bg: #f6f8fa;
   --console-fg: #1f2328;
   --radius: 6px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  /* Keyboard focus ring (translucent accent) + subtle hover elevation. Recompute
-     per theme because they reference --accent, which is redefined below. */
+  /* Keyboard focus ring (translucent accent) + subtle hover elevation. Defined once;
+     var(--accent) resolves lazily so the ring follows the active theme. */
   --focus-ring: color-mix(in srgb, var(--accent) 40%, transparent);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+/* Dark — keep in sync with :root[data-theme="dark"] below. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d1117;
     --bg-elev: #161b22;
     --bg-inset: #010409;
@@ -42,29 +55,13 @@
     --red: #f85149;
     --yellow: #d29922;
     --purple: #ab7df8;
+    --copilot: #8957e5;
     --console-bg: #0d1117;
     --console-fg: #e6edf3;
   }
 }
 
-:root[data-theme="light"] {
-  --bg: #ffffff;
-  --bg-elev: #f6f8fa;
-  --bg-inset: #eaeef2;
-  --border: #d1d9e0;
-  --border-muted: #d8dee4;
-  --text: #1f2328;
-  --dim: #59636e;
-  --accent: #0969da;
-  --accent-emphasis: #0969da;
-  --green: #1a7f37;
-  --red: #cf222e;
-  --yellow: #9a6700;
-  --purple: #8250df;
-  --console-bg: #f6f8fa;
-  --console-fg: #1f2328;
-}
-
+/* Dark (explicit toggle) — keep in sync with the @media block above. */
 :root[data-theme="dark"] {
   --bg: #0d1117;
   --bg-elev: #161b22;
@@ -79,6 +76,7 @@
   --red: #f85149;
   --yellow: #d29922;
   --purple: #ab7df8;
+  --copilot: #8957e5;
   --console-bg: #0d1117;
   --console-fg: #e6edf3;
 }
@@ -350,6 +348,7 @@ body {
 .icon-btn,
 .ghost-btn,
 .fix-btn,
+.copilot-btn,
 .tabs button,
 .segmented button,
 .menu-item,
@@ -368,6 +367,7 @@ body {
 .icon-btn:active,
 .ghost-btn:active,
 .fix-btn:active,
+.copilot-btn:active,
 .tabs button:active,
 .segmented button:active {
   transform: translateY(1px);
@@ -381,6 +381,7 @@ body {
 }
 
 .lane-btn.primary:active,
+.copilot-btn:active,
 .segmented button.on:active {
   filter: brightness(0.94);
 }
@@ -409,6 +410,12 @@ body {
   background: var(--bg-inset);
 }
 
+/* Copilot-action buttons get a purple focus ring (matches their fill), not accent. */
+.copilot-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--copilot) 40%, transparent);
+}
+
 /* Disabled controls stay visually inert (no hover lift / no press). */
 .lane-btn:disabled,
 .lane-btn:disabled:hover,
@@ -417,7 +424,9 @@ body {
 .ghost-btn:disabled,
 .ghost-btn:disabled:hover,
 .fix-btn:disabled,
-.fix-btn:disabled:hover {
+.fix-btn:disabled:hover,
+.copilot-btn:disabled,
+.copilot-btn:disabled:hover {
   transform: none;
   box-shadow: none;
   filter: none;
@@ -1084,6 +1093,50 @@ main {
   background: color-mix(in srgb, var(--purple) 24%, transparent);
 }
 
+/* Copilot-action button: the one filled purple-gradient variant shared by every
+   action that hands work to Copilot (Fix / Send / Update). It is the only filled
+   purple control; blue .primary is reserved for non-Copilot primary actions. The
+   compact inline .fix-btn outline (above) stays for per-item fixes (e.g. .diag-fix).
+   Metrics mirror .lane-btn so heights line up in shared toolbars. */
+.copilot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 12%, var(--copilot)) 0%,
+    var(--copilot) 48%
+  );
+  border: 1px solid color-mix(in srgb, black 14%, var(--copilot));
+  color: var(--on-emphasis);
+  border-radius: var(--radius);
+  padding: 4px 11px;
+  min-height: 28px;
+  line-height: 1;
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+}
+
+.copilot-btn .oi {
+  width: 14px;
+  height: 14px;
+  color: var(--on-emphasis);
+}
+
+.copilot-btn:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    var(--shadow-sm);
+}
+
+.copilot-btn:disabled {
+  opacity: 0.5;
+}
+
 .notice {
   margin: 8px 12px 0;
   padding: 8px 12px;
@@ -1394,7 +1447,7 @@ main {
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--bg);
 }
 
 .dev-split .console {
