@@ -429,11 +429,15 @@ set, not the host semantic tokens — stay within this vocabulary).
 ### Theme tokens (`:root` in `style.css`)
 Surfaces `--bg` / `--bg-elev` / `--bg-inset`; lines `--border` / `--border-muted`; text
 `--text` / `--dim`; brand `--accent` / `--accent-emphasis` / `--on-emphasis` (`#fff`);
-status `--green` / `--red` / `--yellow`; purple `--purple` (foreground/outline) and
-`--copilot` (filled emphasis purple — see buttons); console `--console-bg` / `--console-fg`;
-plus `--radius` (6px), `--mono`, `--focus-ring`, `--shadow-sm`. **Never hardcode hex** in
-rules — add/extend a token (the only deliberate literals are `#fff`/`#000` inside
-`color-mix()` lighten/darken and overlay scrims).
+status `--green` / `--red` / `--yellow`; purple `--purple` (foreground/outline) and the
+Copilot set `--copilot` (solid emphasis purple / focus-ring source) + the tri-stop
+gradient endpoints `--copilot-grad-1` (blue) / `--copilot-grad-2` (purple) /
+`--copilot-grad-3` (fuchsia); control-state tints — **two** flavors: `--surface-hover` /
+`--surface-active` (solid, from `--bg-elev`) and `--control-hover` / `--control-active`
+(translucent overlay) — see Interaction states; console `--console-bg` / `--console-fg`;
+plus `--radius` (6px), `--mono`, `--focus-ring`, `--shadow-sm` (**elevation only** — see
+Flat principle). **Never hardcode hex** in rules — add/extend a token (the only deliberate
+literals are `#fff`/`#000` inside `color-mix()` lighten/darken and overlay scrims).
 
 ### Theming model (3 blocks, keep in sync)
 1. `:root` — the single source of truth for **light** tokens.
@@ -444,52 +448,104 @@ rules — add/extend a token (the only deliberate literals are `#fff`/`#000` ins
 
 The toggle (`applyTheme()` in `app.js`) sets/removes `data-theme` = `light` | `dark` |
 (absent = auto). The two dark blocks (2 & 3) carry **identical** values — change both.
-Theme-agnostic or `--accent`-derived tokens (`--on-emphasis`, `--radius`, `--mono`,
-`--shadow-sm`, `--focus-ring`) live only in `:root`: `var()` resolves lazily at use, so
-they follow the active theme automatically. CSS `light-dark()` would collapse this to one
-block but is intentionally **not** used yet (needs Chrome 123+; webview baseline unconfirmed).
+Tokens that are theme-agnostic or derive from other themed tokens via lazy `var()` live
+only in `:root` and follow the active theme automatically: `--on-emphasis`, `--radius`,
+`--mono`, `--shadow-sm`, `--focus-ring` (→ `--accent`), and `--surface-hover` /
+`--surface-active` / `--control-hover` / `--control-active` (→ `--bg-elev` + `--text`).
+Per-theme color literals (surfaces, text, borders, accents, the Copilot gradient
+endpoints) go in all three blocks. CSS
+`light-dark()` would collapse this to one block but is intentionally **not** used yet
+(needs Chrome 123+; webview baseline unconfirmed).
+
+### Flat principle (the core look)
+The GitHub App theme is **flat**. Controls (buttons, tabs, segmented, menu items, rows,
+inputs, the switch) carry **no bevels, no inset highlights, and no drop shadows**. The
+only depth cue is a 1px border + a background tint. `box-shadow` is reserved for **true
+elevation** — things that float above the page: popovers/menus, the toast
+(`.toast`), the intro/empty-state card, and the drag lift (`.settings-tab-row.dragging`).
+Those are the *only* legitimate `--shadow-sm` users; never add a shadow to a resting or
+hovered control. Gradients are allowed (the Copilot button), but they must be **flat 2D
+fills** — a color transition across the face, not a glossy top-light bevel.
 
 ### Button taxonomy
 - `.lane-btn` — the default action button (elevated surface, hairline border). Modifiers:
   `.primary` = `--accent-emphasis` fill (**blue**, the primary non-Copilot CTA);
   `.task` = quiet transparent/muted.
 - `.icon-btn` / `.ghost-btn` — square icon-only buttons (refresh, kebab, etc.).
-- `.copilot-btn` — **the one filled purple-gradient variant for the recurring Copilot
-  handoffs in the inner loop: Fix / Send / Update** (`#console-fix`, `#problems-fix`,
-  `#test-fix`, `#dev-fix`, `#capture-send`, `#deps-update`, `#deps-audit-fix`). Glossy
-  GitHub-style fill (`--copilot` top-weighted gradient + 1px darker border + inset top
-  highlight), white text/icon, `.lane-btn` metrics, a **purple** focus ring (not the
-  accent one). It is the only filled purple control. It shares the project-scoped
-  `setControlsEnabled()` disable path with `.lane-btn` (the buttons live in
-  project-scoped tabs), so keep both classes in that selector.
-- `.fix-btn` — compact purple **outline** variant for inline per-item fixes (e.g.
-  `.diag-fix`, the hover-revealed icon button on each diagnostic row).
+- `.copilot-btn` — **the one flat blue→purple→fuchsia gradient variant for the recurring
+  Copilot handoffs in the inner loop: Fix / Send / Update** (`#console-fix`, `#problems-fix`,
+  `#test-fix`, `#dev-fix`, `#capture-send`, `#deps-update`, `#deps-audit-fix`). A **flat**
+  `135deg` tri-stop gradient (`--copilot-grad-1` blue → `--copilot-grad-2` purple →
+  `--copilot-grad-3` fuchsia) over a **matching gradient border** — the fill is a
+  `padding-box` gradient and the border a `border-box` gradient of the same stops darkened
+  `~16%` (`border: 1px solid transparent`; this keeps the rounded corners and stays flat).
+  White text/icon, `.lane-btn` metrics, a **purple** focus ring (not the accent one). **No
+  inset highlight, no drop shadow** — the gradient is the pop. Hover darkens uniformly
+  (`brightness(.96)`); active a touch more. It is the only gradient-FILLED control. It
+  shares the project-scoped `setControlsEnabled()` disable path with `.lane-btn` (the
+  buttons live in project-scoped tabs), so keep both classes in that selector.
+- `.fix-btn` — the compact **gradient-OUTLINE** sibling for inline per-item fixes (only
+  use today: `.diag-fix`, the hover-revealed icon button on each diagnostic row). Same
+  Copilot identity in a lightweight form: a full tri-stop gradient `border-box` border over
+  a subtle gradient-tint `padding-box` fill, and a **gradient-filled icon** via the
+  `#copilot-grad` SVG def (`.fix-btn .oi { fill: url(#copilot-grad) }`). A labeled variant
+  would clip the same gradient onto its text (`background-clip: text`). Purple focus ring +
+  `brightness(.94)` press, like `.copilot-btn`.
 
-**Rule: recurring Copilot handoffs (Fix/Send/Update) = purple.** Filled `.copilot-btn`
-for the prominent ones, outline `.fix-btn` for compact inline ones. Blue `.primary` is
-reserved for non-Copilot primary actions. Deliberate exception: `#rf-create` ("Start a
-new Rayfin project") also sends a prompt to Copilot but stays blue `.lane-btn.primary` —
-it's a one-off onboarding/create primary action shown in the no-project intro state, not
-a recurring inner-loop handoff. Revisit if more "create" handoffs appear (they'd want
-their own treatment rather than diluting the Fix/Send/Update purple).
+**The `#copilot-grad` SVG def** lives in the inline sprite `<defs>` (`public/index.html`):
+a `<linearGradient>` whose stops are `style="stop-color: var(--copilot-grad-1|2|3)"`, so the
+icon gradient stays theme-aware. It's the paint server for gradient-filled Copilot icons.
+
+**Rule: recurring Copilot handoffs (Fix/Send/Update) = the blue→purple→fuchsia gradient.**
+Filled `.copilot-btn` for the prominent ones, gradient-outline `.fix-btn` for compact inline
+ones. Blue `.primary` is reserved for non-Copilot primary actions. Deliberate exception:
+`#rf-create` ("Start a new Rayfin project") also sends a prompt to Copilot but stays blue
+`.lane-btn.primary` — it's a one-off onboarding/create primary action shown in the
+no-project intro state, not a recurring inner-loop handoff. Revisit if more "create"
+handoffs appear (they'd want their own treatment rather than diluting the gradient).
 
 ### Interaction states (shared groups near the top of `style.css`)
 - **`cursor` is forbidden everywhere** (`cursor: default !important` on `*`): the native
   Copilot app and the webview fight over the pointer cursor and flicker. Hover / press /
-  focus visuals are the affordance instead.
-- Hover = subtle bg/border shift + `--shadow-sm` (filled buttons brighten). Press
-  (`:active`) = `translateY(1px)` + darken (`brightness(.94)` for filled). Keyboard
-  `:focus-visible` = `0 0 0 3px var(--focus-ring)` (accent) for most controls, a purple
-  ring for `.copilot-btn`; mouse clicks leave no persistent ring. List rows
-  (`.rf-entity-row`) show selection via `.active` (bg tint), focus via a subtle bg — no
-  ring. Disabled controls are inert (no lift/press). `@media (prefers-reduced-motion)`
-  collapses all transitions.
+  focus visuals are the only affordance — so keep them perceptible (don't make hover too
+  subtle), but flat.
+- **Hover** = a background tint only, in **two flavors** (because `--bg-elev ≈ --bg`, a
+  surface-derived step is invisible under a *transparent* control on the toolbar):
+  - filled controls that rest on a surface (`.lane-btn:not(.task)`) use `--surface-hover`
+    — a SOLID step of `--bg-elev` toward `--text`.
+  - transparent controls (`.lane-btn.task`, `.icon-btn`, `.ghost-btn`, `.menu-item`,
+    `.segmented`, `.suite-head`, rows) use `--control-hover` — a TRANSLUCENT `--text`
+    overlay that shows on any base.
+  The border stays `--border` (**never darken it to `--dim`** — reads as an out-of-theme
+  black outline) and there is **no shadow**. Never use `--bg-inset` for a hover (it's
+  near-black in dark and turns controls black).
+- **Press** (`:active`) = the matching stronger background (`--surface-active` /
+  `--control-active`), or `brightness(.94)` for gradient/accent fills (`.primary`,
+  `.copilot-btn`, `.fix-btn`, `.segmented .on`). **No `translateY` push-down** — GitHub
+  shifts the background, it does not move the button.
+- **Filled buttons darken on hover** (GitHub behavior): `.lane-btn.primary` and
+  `.copilot-btn` use `brightness(.96)`, not a lighten.
+- **Focus** (keyboard `:focus-visible`) = `box-shadow: 0 0 0 3px var(--focus-ring)` (accent)
+  for most controls, a **purple** ring for the Copilot buttons (`.copilot-btn`, `.fix-btn`);
+  inputs and the switch use the same box-shadow ring (not `outline`). Mouse clicks leave no
+  persistent ring. List rows (`.rf-entity-row`) show selection via `.active` (accent-tinted
+  bg) and a hover < focus < selected hierarchy (focus uses the stronger `--bg-inset` bg,
+  hover the subtle `--control-hover`) — no ring.
+- Disabled controls are inert (no hover/press response). `@media (prefers-reduced-motion)`
+  collapses all transitions. The shared transition list animates `background-color`,
+  `border-color`, `color`, `box-shadow` (no `transform` — nothing moves).
 
-### Shape & icon conventions
+### Shape, chip & icon conventions
 - Boxes/cards/buttons use `var(--radius)`; pills/chips use `999px`; avatars/dots `50%`;
   inline code `4px`. Cards/sections = `--bg-elev` surface + `--border` hairline.
 - Chips (`.chip`, `.status-chip`) = `999px`, colored border + colored text per status
   (pass→green, fail→red, paused→accent, …), no fill.
+- **Badge colors are semantic.** `--yellow` is **warning-only** (`.suite.warning`,
+  `.diag-row.warning`, `.tab-badge.warning`, audit `MAJOR`, severity `moderate`, etc.).
+  Informational badges use the **accent** (info) color — text and border the *same*
+  `--accent`, no fill (e.g. the info "private" badge `.info-meta-badge`). Never use yellow
+  for non-warnings, never make an info badge grey/neutral, and never mismatch a badge's text
+  and border color.
 - Icons are octicons from the inline `<svg>` sprite: `<svg class="oi"><use href="#oct-…"/></svg>`,
   14px, `--dim` by default, `--accent` on `.lane-btn` hover, `--on-emphasis` on filled
   buttons. Keep an informative icon even when restyling (e.g. `#dev-fix` keeps its camera

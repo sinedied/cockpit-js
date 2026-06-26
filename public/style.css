@@ -10,9 +10,10 @@
         user hasn't explicitly forced Light (the :not guard makes the Light toggle win)
      3. :root[data-theme="dark"]                 -> dark when the user forces Dark
    The two dark blocks (2 & 3) carry identical values — keep them in sync. Tokens that
-   reference --accent (--focus-ring) or are theme-agnostic (--on-emphasis, --radius,
-   --mono, --shadow-sm) live only in :root: var() resolves lazily at use time, so they
-   pick up the overridden --accent automatically. */
+   reference other themed tokens (--focus-ring -> --accent; --surface-hover/-active and
+   --control-hover/-active -> --bg-elev / --text) or are theme-agnostic (--on-emphasis,
+   --radius, --mono, --shadow-sm) live only in :root: var() resolves lazily at use time, so
+   they pick up the overridden values automatically. */
 :root {
   --bg: #ffffff;
   --bg-elev: #f6f8fa;
@@ -29,14 +30,28 @@
   --yellow: #9a6700;
   --purple: #8250df;
   --copilot: #8250df;
+  --copilot-grad-1: #0969da;
+  --copilot-grad-2: #8250df;
+  --copilot-grad-3: #bf3989;
   --console-bg: #f6f8fa;
   --console-fg: #1f2328;
   --radius: 6px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  /* Keyboard focus ring (translucent accent) + subtle hover elevation. Defined once;
-     var(--accent) resolves lazily so the ring follows the active theme. */
+  /* Keyboard focus ring (translucent accent). Defined once; var(--accent) resolves
+     lazily so the ring follows the active theme. */
   --focus-ring: color-mix(in srgb, var(--accent) 40%, transparent);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  /* Hover/press feedback comes in two flavors so it stays visible on any base:
+     - surface-*: a SOLID step from an elevated surface, for filled controls that rest on
+       --bg-elev (e.g. .lane-btn). Mixing --bg-elev toward --text darkens in light /
+       lightens in dark.
+     - control-*: a TRANSLUCENT overlay, for transparent controls (task/icon/ghost
+       buttons, menu items, rows). --bg-elev ~= --bg, so a surface step is invisible under
+       a transparent button on the toolbar; a text-tinted overlay shows on every base. */
+  --surface-hover: color-mix(in srgb, var(--bg-elev), var(--text) 6%);
+  --surface-active: color-mix(in srgb, var(--bg-elev), var(--text) 12%);
+  --control-hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --control-active: color-mix(in srgb, var(--text) 13%, transparent);
 }
 
 /* Dark — keep in sync with :root[data-theme="dark"] below. */
@@ -56,6 +71,9 @@
     --yellow: #d29922;
     --purple: #ab7df8;
     --copilot: #8957e5;
+    --copilot-grad-1: #1f6feb;
+    --copilot-grad-2: #8957e5;
+    --copilot-grad-3: #c4399b;
     --console-bg: #0d1117;
     --console-fg: #e6edf3;
   }
@@ -77,6 +95,9 @@
   --yellow: #d29922;
   --purple: #ab7df8;
   --copilot: #8957e5;
+  --copilot-grad-1: #1f6feb;
+  --copilot-grad-2: #8957e5;
+  --copilot-grad-3: #c4399b;
   --console-bg: #0d1117;
   --console-fg: #e6edf3;
 }
@@ -215,13 +236,13 @@ body {
 }
 
 .info-meta-badge {
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   border-radius: 999px;
   padding: 0 7px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--yellow);
+  color: var(--accent);
 }
 
 .info-desc {
@@ -358,43 +379,33 @@ body {
     background-color 0.1s ease,
     border-color 0.1s ease,
     color 0.1s ease,
-    box-shadow 0.1s ease,
-    transform 0.06s ease;
+    box-shadow 0.1s ease;
 }
 
-/* Press feedback: a small dip + darken (the core "click hint"). */
-.lane-btn:active,
-.icon-btn:active,
-.ghost-btn:active,
-.fix-btn:active,
-.copilot-btn:active,
-.tabs button:active,
-.segmented button:active {
-  transform: translateY(1px);
+/* Press feedback (flat — GitHub shifts the background, it does not move the button).
+   Filled controls that rest on a surface get a solid step; transparent controls get a
+   translucent overlay; gradient/accent fills darken via filter. */
+.lane-btn:not(.primary):not(.task):active {
+  background: var(--surface-active);
 }
 
-.lane-btn:not(.primary):active,
+.lane-btn.task:active,
 .icon-btn:active,
 .ghost-btn:active {
-  background: var(--bg-inset);
-  border-color: var(--dim);
+  background: var(--control-active);
 }
 
 .lane-btn.primary:active,
 .copilot-btn:active,
+.fix-btn:active,
 .segmented button.on:active {
   filter: brightness(0.94);
-}
-
-.fix-btn:active {
-  background: color-mix(in srgb, var(--purple) 30%, transparent);
 }
 
 /* Keyboard-only focus ring (mouse clicks won't leave a persistent ring). */
 .lane-btn:focus-visible,
 .icon-btn:focus-visible,
 .ghost-btn:focus-visible,
-.fix-btn:focus-visible,
 .tabs button:focus-visible,
 .segmented button:focus-visible,
 .menu-item:focus-visible,
@@ -410,8 +421,10 @@ body {
   background: var(--bg-inset);
 }
 
-/* Copilot-action buttons get a purple focus ring (matches their fill), not accent. */
-.copilot-btn:focus-visible {
+/* Copilot-action buttons (filled .copilot-btn + outline .fix-btn) get a purple focus ring
+   (matches their gradient identity), not the accent one. */
+.copilot-btn:focus-visible,
+.fix-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--copilot) 40%, transparent);
 }
@@ -456,10 +469,12 @@ body {
   flex: 0 0 auto;
 }
 
-.lane-btn:hover {
-  background: var(--bg-inset);
-  border-color: var(--dim);
-  box-shadow: var(--shadow-sm);
+.lane-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.lane-btn.task:hover:not(:disabled) {
+  background: var(--control-hover);
 }
 
 .lane-btn .oi {
@@ -483,7 +498,7 @@ body {
 }
 
 .lane-btn.primary:hover {
-  filter: brightness(1.08);
+  filter: brightness(0.96);
 }
 
 .lane-btn.task {
@@ -519,10 +534,9 @@ body {
   color: var(--dim);
 }
 
-.icon-btn:hover,
-.ghost-btn:hover {
-  background: var(--bg-inset);
-  box-shadow: var(--shadow-sm);
+.icon-btn:hover:not(:disabled),
+.ghost-btn:hover:not(:disabled) {
+  background: var(--control-hover);
 }
 
 .icon-btn:hover .oi {
@@ -643,7 +657,7 @@ body {
 }
 
 .menu-item:hover {
-  background: var(--bg-inset);
+  background: var(--control-hover);
 }
 
 .menu-item input {
@@ -738,7 +752,7 @@ body {
 }
 
 .segmented button:hover:not(.on) {
-  background: var(--bg-inset);
+  background: var(--control-hover);
   color: var(--text);
 }
 
@@ -883,7 +897,7 @@ body {
 }
 
 .more-menu-item:hover {
-  background: var(--bg-inset);
+  background: var(--control-hover);
 }
 
 .more-menu-item.active {
@@ -1072,13 +1086,33 @@ main {
   border-color: var(--accent);
 }
 
+/* Compact inline Copilot fix button (e.g. .diag-fix). A gradient OUTLINE chip that echoes
+   the filled .copilot-btn: full tri-stop gradient border (border-box) over a subtle
+   gradient-tint fill (padding-box), and a gradient-filled icon via the #copilot-grad SVG
+   def. Today's only instance is icon-only, so the Copilot identity is the border + icon. A
+   future LABELED variant would add gradient text by clipping the same gradient onto the
+   label (`background-clip: text`); that is not implemented here. */
 .fix-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: color-mix(in srgb, var(--purple) 14%, transparent);
-  border: 1px solid var(--purple);
-  color: var(--purple);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--copilot-grad-1) 12%, var(--bg)) 0%,
+      color-mix(in srgb, var(--copilot-grad-2) 12%, var(--bg)) 50%,
+      color-mix(in srgb, var(--copilot-grad-3) 12%, var(--bg)) 100%
+    )
+    padding-box,
+    linear-gradient(
+      135deg,
+      var(--copilot-grad-1) 0%,
+      var(--copilot-grad-2) 50%,
+      var(--copilot-grad-3) 100%
+    )
+    border-box;
+  border: 1px solid transparent;
+  color: var(--copilot-grad-2);
   border-radius: var(--radius);
   padding: 5px 10px;
   font-weight: 600;
@@ -1086,28 +1120,58 @@ main {
 }
 
 .fix-btn .oi {
-  color: var(--purple);
+  /* Gradient-filled icon; the trailing color is an SVG paint fallback (Copilot purple)
+     in case the #copilot-grad paint server ever fails to resolve. */
+  fill: url("#copilot-grad") var(--copilot-grad-2);
+  color: var(--copilot-grad-2);
 }
 
 .fix-btn:hover {
-  background: color-mix(in srgb, var(--purple) 24%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--copilot-grad-1) 20%, var(--bg)) 0%,
+      color-mix(in srgb, var(--copilot-grad-2) 20%, var(--bg)) 50%,
+      color-mix(in srgb, var(--copilot-grad-3) 20%, var(--bg)) 100%
+    )
+    padding-box,
+    linear-gradient(
+      135deg,
+      var(--copilot-grad-1) 0%,
+      var(--copilot-grad-2) 50%,
+      var(--copilot-grad-3) 100%
+    )
+    border-box;
 }
 
-/* Copilot-action button: the one filled purple-gradient variant shared by every
-   action that hands work to Copilot (Fix / Send / Update). It is the only filled
-   purple control; blue .primary is reserved for non-Copilot primary actions. The
-   compact inline .fix-btn outline (above) stays for per-item fixes (e.g. .diag-fix).
-   Metrics mirror .lane-btn so heights line up in shared toolbars. */
+/* Copilot-action button: the one flat blue->purple->fuchsia gradient variant shared by
+   every action that hands work to Copilot (Fix / Send / Update). Flat — no inset
+   highlight, no drop shadow; the tri-stop gradient is the pop, with a matching
+   darker-gradient border (border-box). It is the only gradient-FILLED control; blue
+   .primary is reserved for non-Copilot primary actions. The compact inline .fix-btn
+   gradient OUTLINE (above) is the same identity for per-item fixes (e.g. .diag-fix).
+   Metrics
+   mirror .lane-btn so heights line up in shared toolbars. */
 .copilot-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, white 12%, var(--copilot)) 0%,
-    var(--copilot) 48%
-  );
-  border: 1px solid color-mix(in srgb, black 14%, var(--copilot));
+  background:
+    linear-gradient(
+      135deg,
+      var(--copilot-grad-1) 0%,
+      var(--copilot-grad-2) 50%,
+      var(--copilot-grad-3) 100%
+    )
+    padding-box,
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, black 16%, var(--copilot-grad-1)) 0%,
+      color-mix(in srgb, black 16%, var(--copilot-grad-2)) 50%,
+      color-mix(in srgb, black 16%, var(--copilot-grad-3)) 100%
+    )
+    border-box;
+  border: 1px solid transparent;
   color: var(--on-emphasis);
   border-radius: var(--radius);
   padding: 4px 11px;
@@ -1117,7 +1181,6 @@ main {
   font-size: 12px;
   white-space: nowrap;
   flex: 0 0 auto;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
 }
 
 .copilot-btn .oi {
@@ -1127,10 +1190,7 @@ main {
 }
 
 .copilot-btn:hover {
-  filter: brightness(1.06);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
-    var(--shadow-sm);
+  filter: brightness(0.96);
 }
 
 .copilot-btn:disabled {
@@ -1231,7 +1291,7 @@ main {
 }
 
 .suite > summary.suite-head:hover {
-  background: var(--bg-inset);
+  background: var(--control-hover);
 }
 
 /* CSS-only fold caret: rotates from a right-pointing triangle to a down-pointing
@@ -1507,8 +1567,8 @@ main {
 }
 
 .url-input:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -1px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
   border-color: var(--accent);
 }
 
@@ -1566,8 +1626,8 @@ main {
 }
 
 .switch input:focus-visible + .switch-track {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .switch-label {
@@ -1876,7 +1936,7 @@ table.dep-table {
   white-space: nowrap;
 }
 .rf-entity-row:hover {
-  background: var(--bg-inset);
+  background: var(--control-hover);
 }
 .rf-entity-row.active {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
@@ -2397,7 +2457,7 @@ table.dep-table {
 }
 
 .dbg-frame:hover {
-  background: var(--bg-elev);
+  background: var(--control-hover);
 }
 
 .dbg-frame.selected {
@@ -2435,7 +2495,7 @@ table.dep-table {
 }
 
 .dbg-var.expandable:hover {
-  background: var(--bg-elev);
+  background: var(--control-hover);
 }
 
 .dbg-caret,
