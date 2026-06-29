@@ -90,6 +90,7 @@ const session = await joinSession({
         if (servers.size === 0) {
           controller.stopTsServer();
           controller.stopTestWatch().catch(() => {});
+          controller.stopDev().catch(() => {});
         }
       },
     }),

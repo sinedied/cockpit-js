@@ -123,7 +123,12 @@ describe("dev server lifecycle", () => {
   it("starts, detects the URL, and stops", async () => {
     const started = await controller.startDev();
     expect(started.ok).toBe(true);
-    await new Promise((r) => setTimeout(r, 1500));
+    // Poll for the URL rather than a fixed sleep so cold/slow CI npm startup
+    // doesn't cause a false miss.
+    const deadline = Date.now() + 10000;
+    while (!controller.dev.url && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
     expect(controller.dev.url).toBe("http://localhost:5199/");
     const stopped = await controller.stopDev();
     expect(stopped.ok).toBe(true);

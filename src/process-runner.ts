@@ -21,7 +21,13 @@ interface StartOptions extends SpawnOptions {
 // Spawn argv cross-platform. On Windows, package-manager binaries are `.cmd`
 // shims that must be run through the shell, so we route through cmd.exe with
 // verbatim arguments; on POSIX we exec directly (no shell injection surface).
-function spawnArgv(argv: string[], { cwd, env }: SpawnOptions): ChildProcess {
+// `group` makes the POSIX child a process-group leader (detached) so the whole
+// tree can be killed at once — long-lived servers (npm -> sh -> node) leave
+// grandchildren that must die together; one-shot lanes don't need it.
+function spawnArgv(
+  argv: string[],
+  { cwd, env, group }: SpawnOptions & { group?: boolean },
+): ChildProcess {
   const [command, ...args] = argv;
   if (process.platform === "win32") {
     const line = [command, ...args]
@@ -33,7 +39,7 @@ function spawnArgv(argv: string[], { cwd, env }: SpawnOptions): ChildProcess {
       windowsVerbatimArguments: true,
     });
   }
-  return spawn(command, args, { cwd, env });
+  return spawn(command, args, { cwd, env, detached: !!group });
 }
 
 // Run a command to completion, streaming each output chunk via onData.
@@ -89,7 +95,7 @@ export function start(
   argv: string[],
   { cwd, env = process.env, onData }: StartOptions = {},
 ): ProcessHandle {
-  const child = spawnArgv(argv, { cwd, env });
+  const child = spawnArgv(argv, { cwd, env, group: true });
   const handle = (buf: Buffer) => onData?.(buf.toString());
   child.stdout?.on("data", handle);
   child.stderr?.on("data", handle);
@@ -100,17 +106,38 @@ export function start(
         resolve();
         return;
       }
-      const done = () => resolve();
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      // Resolve on either: `exit` fires when the process exits even if inherited
+      // pipes are still held open by a grandchild; `close` is the belt-and-braces.
+      child.once("exit", done);
       child.once("close", done);
       try {
         if (process.platform === "win32") {
           spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"]);
+        } else if (child.pid) {
+          // The child is a process-group leader (detached); signal the whole
+          // group (-pid) so grandchildren die too. Escalate to SIGKILL if the
+          // group is still alive — gating on group existence (not the direct
+          // child) so a stubborn grandchild that outlives npm still gets reaped.
+          const pgid = child.pid;
+          try {
+            process.kill(-pgid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
+          }
+          setTimeout(() => {
+            try {
+              process.kill(-pgid, 0); // throws if the group is gone
+              process.kill(-pgid, "SIGKILL");
+            } catch {}
+          }, 4000).unref();
         } else {
           child.kill("SIGTERM");
-          // Escalate if it ignores SIGTERM.
-          setTimeout(() => {
-            if (child.exitCode === null && !child.signalCode) child.kill("SIGKILL");
-          }, 4000);
         }
       } catch {
         resolve();
