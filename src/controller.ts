@@ -69,7 +69,7 @@ import type {
   TsLsState,
 } from "./types.ts";
 
-const ONE_SHOT_LANES = ["build", "lint", "format", "typecheck", "test"];
+const ONE_SHOT_LANES = ["build", "lint", "format", "typecheck", "test", "e2e"];
 
 // Source dirs we recursively watch for diagnostics refresh (avoids registering
 // OS watchers over node_modules). The project root is always watched shallowly

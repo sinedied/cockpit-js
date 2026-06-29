@@ -16,6 +16,7 @@ export interface LaneAvailability {
   test: boolean;
   dev: boolean;
   diagnostics: boolean;
+  e2e: boolean;
 }
 
 export interface NoProjectDetection {
@@ -505,7 +506,7 @@ export interface RunResult {
 
 export type AppEvent = { type: string } & Record<string, unknown>;
 
-export type LaneId = "build" | "typecheck" | "lint" | "format" | "test";
+export type LaneId = "build" | "typecheck" | "lint" | "format" | "test" | "e2e";
 
 export type PinnedTask = { type: "lane"; id: LaneId } | { type: "script"; name: string };
 

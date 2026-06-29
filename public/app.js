@@ -81,7 +81,7 @@ function formatBytes(n) {
 }
 
 let activeConsoleLane = null;
-const CONSOLE_LANES = new Set(["build", "lint", "format", "typecheck", "update"]);
+const CONSOLE_LANES = new Set(["build", "lint", "format", "typecheck", "e2e", "update"]);
 const isConsoleLane = (id) =>
   CONSOLE_LANES.has(id) || id.startsWith("script:") || id.startsWith("rayfin:");
 
@@ -1449,6 +1449,7 @@ const LANE_TASKS = [
   { id: "lint", label: "Lint" },
   { id: "format", label: "Format" },
   { id: "test", label: "Test" },
+  { id: "e2e", label: "E2E" },
 ];
 const LANE_LABEL = Object.fromEntries(LANE_TASKS.map((t) => [t.id, t.label]));
 
@@ -1461,6 +1462,7 @@ const LANE_CANDIDATES = {
   lint: ["lint"],
   format: ["format"],
   test: ["test"],
+  e2e: ["e2e", "test:e2e", "e2e:ci", "test:e2e:ci"],
 };
 
 function taskKey(t) {

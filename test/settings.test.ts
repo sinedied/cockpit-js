@@ -22,6 +22,11 @@ describe("settings migration", () => {
     expect(out.theme).toBe("dark");
   });
 
+  it("keeps the e2e lane as a valid pinned task", () => {
+    const out = migrate({ pinnedTasks: [{ type: "lane", id: "e2e" }] } as never);
+    expect(out.pinnedTasks).toEqual([{ type: "lane", id: "e2e" }]);
+  });
+
   it("migrates legacy pinnedScripts to script tasks, never to lanes", () => {
     const out = migrate({ pinnedScripts: ["build", "release", "test"] });
     expect(out.pinnedTasks).toEqual([

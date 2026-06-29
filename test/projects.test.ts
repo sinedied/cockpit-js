@@ -96,6 +96,32 @@ describe("enumerateProjects — workspaces", () => {
   });
 });
 
+describe("enumerateProjects — Rush", () => {
+  it("reads rush.json projectFolder members (JSONC with comments)", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "np-rush-"));
+    await pkg(root, { name: "rush-root" });
+    await writeFile(
+      path.join(root, "rush.json"),
+      `{
+        // Rush config (JSONC)
+        "rushVersion": "5.0.0",
+        "projects": [
+          { "packageName": "@my/api", "projectFolder": "apps/api" },
+          { "packageName": "@my/web", "projectFolder": "apps/web" }
+        ]
+      }`,
+    );
+    await pkg(path.join(root, "apps/api"), { name: "@my/api" });
+    await pkg(path.join(root, "apps/web"), { name: "@my/web" });
+
+    const out = await enumerateProjects(root);
+    expect(out.map((p) => p.name)).toEqual(["rush-root", "@my/api", "@my/web"]);
+    // rush.json makes the root a workspace root.
+    expect(out[0]).toMatchObject({ rel: ".", isWorkspaceRoot: true, group: "rush-root" });
+    expect(out[1]).toMatchObject({ rel: "apps/api", group: "rush-root" });
+  });
+});
+
 describe("enumerateProjects — scan", () => {
   it("finds standalone sibling packages under 'Other projects'", async () => {
     root = await mkdtemp(path.join(os.tmpdir(), "np-multi-"));

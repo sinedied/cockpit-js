@@ -117,6 +117,7 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   discovers selectable projects under the session root: npm/yarn `workspaces` globs +
   `pnpm-workspace.yaml` `packages:` globs (block-list **and** inline flow-array forms;
   quote-aware comment stripping; each resolved member must contain a `package.json`),
+  **plus** Rush `rush.json` `projects[].projectFolder` members (JSONC, comment-stripped),
   **plus** a bounded depth-2 scan for other standalone `package.json`
   dirs (excluding `node_modules`/`dist`/`build`/`coverage`/`.next`/`.astro`/fixtures/
   examples/etc.), de-duped. `!`-negation globs are applied as exclusions (to members
@@ -272,9 +273,9 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   lanes/tabs that don't apply.
 - **Tasks dropdown model** (`#scripts-menu`, `classifyTasks()`/`renderScriptsMenu()` in
   `app.js`): one list in **package.json declared order** — no separate Tasks/Scripts
-  groups. The "special" built-in tasks are **build / lint / format / test** (`LANE_TASKS`);
-  each binds to its first present candidate script (`LANE_CANDIDATES`, mirroring
-  `lanes.ts` `laneScript()`/`pickScript`). A script that backs a special is shown
+  groups. The "special" built-in tasks are **build / lint / format / test / e2e**
+  (`LANE_TASKS`); each binds to its first present candidate script (`LANE_CANDIDATES`,
+  mirroring `lanes.ts` `laneScript()`/`pickScript`). A script that backs a special is shown
   **bold with an accent zap octicon (`oct-zap`) after the name** and runs/pins
   as the **lane** (no duplicate lane/script row); built-in specials with no backing script (e.g. Lint/Format via Biome)
   are listed as script-less specials **at the top**. Other same-family scripts
@@ -283,6 +284,10 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   Problems tab (TS language server) supersedes it, so a `typecheck`/`tsc` script just runs
   as an ordinary script. `LANE_TASK_ORDER` dropped `typecheck`; `resolveTypecheck`/
   `availability.typecheck` are kept only for the agent action + `/api/lane` back-compat.
+  **E2E lane**: `resolveE2e` is a **Console** lane (`playwright test` or an `e2e`/`test:e2e`
+  script), available only when `@playwright/test` is detected (`d.playwright`); pinnable
+  like the other specials, `run_e2e` agent action. Deliberately **not** a Tests-tab suite —
+  Playwright's JSON report has its own schema (no parser), so it streams like build/lint.
 - **TS language server (`ts-server.ts` → Problems tab)** — a few hard-won rules:
   - **Never spawn `process.execPath`** to run `tsserver.js`. Inside the extension
     fork, `execPath` is the **host Copilot CLI binary** (e.g. `.../copilot`), which
@@ -310,7 +315,8 @@ inspiration: [coffilot](https://github.com/jdubois/coffilot). Full design in
   panel shows **both** TypeScript and lint findings, grouped by file:
   - **Separate from the Console lint lane.** `lanes.resolveLintJson()` resolves a
     machine-readable JSON command (`biome lint --reporter=json .`, `eslint . --format json`,
-    or `oxlint --format=json`); `lint-report.ts` parses it into the shared `Diagnostic[]`
+    `oxlint --format=json`, or `xo --reporter json` → reuses the eslint parser since XO emits
+    ESLint JSON); `lint-report.ts` parses it into the shared `Diagnostic[]`
     shape (`source:"lint"`, absolute paths, `rule` = lint rule id, `code:null`). The
     human-readable lint *lane* that feeds the Console is unchanged.
   - **Parse `res.stdout`, not `res.output`.** `process-runner.run()` now returns `stdout`
@@ -449,6 +455,10 @@ The agent dev loop for any change:
 > **Never `git commit` or `git push` without explicit human review and validation
 > first.** Leave changes staged/working and hand them to the maintainer; they review,
 > validate in the app, and commit. Conventional Commits when they do.
+> **Pushing to `main` triggers an automatic release** (semantic-release cuts a GitHub
+> Release the self-update check reads back — see "Self-update & release pipeline"), so
+> **only `git push` when the human explicitly says so** — never on your own initiative,
+> even right after a commit they asked for.
 
 ## Conventions
 

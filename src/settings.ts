@@ -44,7 +44,7 @@ const DEFAULTS: Settings = {
   checkUpdatesOnLaunch: true,
 };
 
-const LANE_IDS = new Set<LaneId>(["build", "typecheck", "lint", "format", "test"]);
+const LANE_IDS = new Set<LaneId>(["build", "typecheck", "lint", "format", "test", "e2e"]);
 
 // Validate a persisted tab id list: keep only known ids, de-duplicate, preserve order.
 function sanitizeTabs(value: unknown): string[] {

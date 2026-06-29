@@ -19,6 +19,7 @@ interface PackageJson {
   license?: unknown;
   private?: boolean;
   description?: string;
+  xo?: unknown;
 }
 
 function detectPm(cwd: string, pkg: PackageJson): PackageManager {
@@ -79,9 +80,22 @@ function detectTestRunner(
   return null;
 }
 
-function detectLinter(cwd: string, deps: Record<string, string>): string | null {
+function detectLinter(cwd: string, deps: Record<string, string>, pkg: PackageJson): string | null {
   if (deps["@biomejs/biome"] || firstExisting(cwd, ["biome.json", "biome.jsonc"])) return "biome";
   if (deps.oxlint) return "oxlint";
+  if (
+    deps.xo ||
+    pkg.xo !== undefined ||
+    firstExisting(cwd, [
+      "xo.config.js",
+      "xo.config.cjs",
+      "xo.config.mjs",
+      "xo.config.ts",
+      ".xo-config.js",
+      ".xo-config.json",
+    ])
+  )
+    return "xo";
   if (
     deps.eslint ||
     firstExisting(cwd, [
@@ -125,6 +139,7 @@ async function detectWorkspaces(cwd: string, pkg: PackageJson): Promise<string[]
   if (existsSyncSafe(path.join(cwd, "pnpm-workspace.yaml"))) reasons.push("pnpm-workspace.yaml");
   if (existsSyncSafe(path.join(cwd, "turbo.json"))) reasons.push("Turborepo");
   if (existsSyncSafe(path.join(cwd, "nx.json"))) reasons.push("Nx");
+  if (existsSyncSafe(path.join(cwd, "rush.json"))) reasons.push("Rush");
   if (existsSyncSafe(path.join(cwd, "lerna.json"))) reasons.push("Lerna");
   return reasons.length ? reasons : null;
 }
@@ -147,7 +162,7 @@ export async function detect(cwd: string): Promise<Detection> {
     Boolean(firstExisting(cwd, ["tsconfig.json", "tsconfig.base.json"]));
   const framework = detectFramework(cwd, deps);
   const testRunner = detectTestRunner(cwd, deps, scripts);
-  const linter = detectLinter(cwd, deps);
+  const linter = detectLinter(cwd, deps, pkg);
   const formatter = detectFormatter(cwd, deps);
   const workspaces = await detectWorkspaces(cwd, pkg);
   const playwright = Boolean(deps["@playwright/test"]);

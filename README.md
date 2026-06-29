@@ -60,11 +60,12 @@ and context straight to chat.
 | Capability       | Detected from                                                                                               |
 | ---------------- | ----------------------------------------------------------------------------------------------------------- |
 | Package manager  | `bun.lockb` · `pnpm-lock.yaml` · `yarn.lock` · `package-lock.json` · `packageManager` field (default `npm`) |
-| Framework / dev  | Vite · Next.js · Nuxt · Astro · SvelteKit · Remix (config + dependency)                                      |
+| Framework / dev  | Vite · Next.js · Nuxt · Astro · SvelteKit · Remix · Angular · Qwik · Gatsby (config + dependency)            |
 | TypeScript       | `tsconfig.json` / `typescript` dependency                                                                    |
-| Test runner      | Vitest · Jest · `node:test` · Bun                                                                            |
-| Linter / format  | Biome · ESLint · oxlint · Prettier                                                                           |
-| Monorepo         | npm / yarn / pnpm `workspaces` · standalone packages                                                         |
+| Test runner      | Vitest · Jest · `node:test` · Mocha · AVA · Bun                                                              |
+| E2E              | Playwright (`@playwright/test`)                                                                              |
+| Linter / format  | Biome · ESLint · oxlint · XO · Prettier                                                                      |
+| Monorepo         | npm / yarn / pnpm `workspaces` · Turborepo · Nx · Rush · standalone packages                                 |
 
 Missing a capability simply hides the matching lane or tab — there is nothing to configure.
 

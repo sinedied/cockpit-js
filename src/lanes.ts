@@ -60,8 +60,13 @@ export function resolveLint(d: ProjectDetection, { fix = false } = {}): LaneResu
       label: `oxlint${fix ? " --fix" : ""}`,
       argv: exec(d.pm, ["oxlint", ...(fix ? ["--fix"] : [])]),
     };
+  if (d.linter === "xo")
+    return {
+      label: `xo${fix ? " --fix" : ""}`,
+      argv: exec(d.pm, ["xo", ...(fix ? ["--fix"] : [])]),
+    };
   if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
-  return { unavailable: true, reason: "No linter (eslint / biome / oxlint) detected." };
+  return { unavailable: true, reason: "No linter (eslint / biome / oxlint / xo) detected." };
 }
 
 // Resolve the linter to a machine-readable command, independent of any pinned
@@ -87,7 +92,13 @@ export function resolveLintJson(d: ProjectDetection): LintResolution {
       argv: exec(d.pm, ["oxlint", "--format=json"]),
       parser: "oxlint",
     };
-  return { unavailable: true, reason: "No linter (eslint / biome / oxlint) detected." };
+  if (d.linter === "xo")
+    return {
+      label: "xo --reporter json",
+      argv: exec(d.pm, ["xo", "--reporter", "json"]),
+      parser: "eslint",
+    };
+  return { unavailable: true, reason: "No linter (eslint / biome / oxlint / xo) detected." };
 }
 
 export function resolveFormat(d: ProjectDetection, { check = false } = {}): LaneResult {
@@ -114,6 +125,17 @@ export function resolveTypecheck(d: ProjectDetection): LaneResult {
     unavailable: true,
     reason: "TypeScript not detected (no tsconfig.json / typescript dep).",
   };
+}
+
+// E2E tests run via Playwright. A pinnable Console lane (streamed like build/lint),
+// deliberately not the Tests tab: Playwright's JSON report has a different schema, so
+// there's no report parser. Prefers an explicit e2e script, then `playwright test`.
+export function resolveE2e(d: ProjectDetection): LaneResult {
+  if (!d.playwright)
+    return { unavailable: true, reason: "Playwright (@playwright/test) not detected." };
+  const script = pickScript(d, ["e2e", "test:e2e", "e2e:ci", "test:e2e:ci"]);
+  if (script) return { label: `${d.pm} run ${script}`, argv: runScript(d.pm, script) };
+  return { label: "playwright test", argv: exec(d.pm, ["playwright", "test"]) };
 }
 
 export function resolveDev(d: ProjectDetection): LaneResult {
@@ -258,6 +280,8 @@ export function resolveLane(
       return resolveFormat(d, opts);
     case "typecheck":
       return resolveTypecheck(d);
+    case "e2e":
+      return resolveE2e(d);
     default:
       return { unavailable: true, reason: `Unknown lane: ${laneId}` };
   }
@@ -281,6 +305,7 @@ export function laneAvailability(d: ProjectDetection | null): LaneAvailability {
       test: false,
       dev: false,
       diagnostics: false,
+      e2e: false,
     };
   }
   return {
@@ -291,6 +316,7 @@ export function laneAvailability(d: ProjectDetection | null): LaneAvailability {
     test: !resolveTest(d).unavailable,
     dev: !resolveDev(d).unavailable,
     diagnostics: resolveDiagnostics(d),
+    e2e: !resolveE2e(d).unavailable,
   };
 }
 
@@ -298,7 +324,7 @@ export function laneAvailability(d: ProjectDetection | null): LaneAvailability {
 // lives in its own tab (persistent start/stop/URL/preview state). `typecheck` is
 // excluded too: the Problems tab (TS language server) supersedes it, so it is no
 // longer surfaced as a promoted task (a `typecheck` script just runs raw).
-export const LANE_TASK_ORDER = ["build", "lint", "format", "test"] as const;
+export const LANE_TASK_ORDER = ["build", "lint", "format", "test", "e2e"] as const;
 type SpecialLane = (typeof LANE_TASK_ORDER)[number];
 
 // The package.json script names that "back" each special task. A lane binds to
@@ -310,6 +336,7 @@ const LANE_SCRIPT_CANDIDATES: Record<SpecialLane, string[]> = {
   lint: ["lint"],
   format: ["format"],
   test: ["test"],
+  e2e: ["e2e", "test:e2e", "e2e:ci", "test:e2e:ci"],
 };
 
 // The package.json script that backs a special lane, honoring candidate

@@ -146,6 +146,12 @@ export function buildActions(controller: Controller): ActionDefinition[] {
       handler: async () => controller.runLane("typecheck"),
     },
     {
+      name: "run_e2e",
+      description:
+        "Run end-to-end tests via Playwright (playwright test or an e2e script), streamed to the Console. Only available when @playwright/test is detected.",
+      handler: async () => controller.runLane("e2e"),
+    },
+    {
       name: "run_tests",
       description:
         "Run the test suite and return a structured pass/fail report. Optional { pattern } filters tests.",

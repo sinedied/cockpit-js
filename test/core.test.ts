@@ -6,6 +6,7 @@ import path from "node:path";
 import { Controller } from "../src/controller.ts";
 import { parseJestLike, parseTap, parseTextCounts } from "../src/test-report.ts";
 import { resolveBuild, resolveTest, laneAvailability } from "../src/lanes.ts";
+import { resolveLint, resolveLintJson, resolveE2e } from "../src/lanes.ts";
 import { classifyBump } from "../src/deps.ts";
 import type { ProjectDetection } from "../src/types.ts";
 
@@ -100,6 +101,79 @@ describe("lanes", () => {
     const cmd = resolveTest(controller.detection as ProjectDetection);
     expect(cmd.unavailable).toBeFalsy();
     if (!cmd.unavailable) expect(cmd.parser).toBe("tap");
+  });
+});
+
+// Synthetic detection for pure lane-resolution tests.
+function det(over: Partial<ProjectDetection> = {}): ProjectDetection {
+  return {
+    hasProject: true,
+    cwd: "/tmp/x",
+    name: "x",
+    version: null,
+    pm: "npm",
+    packageManagerField: null,
+    scripts: {},
+    scriptNames: [],
+    typescript: false,
+    framework: { id: "node", label: "Node.js" },
+    testRunner: null,
+    playwright: false,
+    linter: null,
+    formatter: null,
+    workspaces: null,
+    engines: null,
+    nvmrc: null,
+    runtimeNode: "v22",
+    moduleType: "ESM",
+    license: null,
+    private: false,
+    description: null,
+    dependencyCount: 0,
+    devDependencyCount: 0,
+    ...over,
+  };
+}
+
+describe("XO linter", () => {
+  it("resolves the XO lint command", () => {
+    const cmd = resolveLint(det({ linter: "xo" }), { fix: false });
+    expect(cmd.unavailable).toBeFalsy();
+    if (!cmd.unavailable) expect(cmd.argv).toEqual(["npm", "exec", "--", "xo"]);
+  });
+  it("resolves XO --fix", () => {
+    const cmd = resolveLint(det({ linter: "xo" }), { fix: true });
+    if (!cmd.unavailable) expect(cmd.argv).toEqual(["npm", "exec", "--", "xo", "--fix"]);
+  });
+  it("resolves XO JSON to the eslint parser", () => {
+    const cmd = resolveLintJson(det({ linter: "xo" }));
+    expect(cmd.unavailable).toBeFalsy();
+    if (!cmd.unavailable) {
+      expect(cmd.parser).toBe("eslint");
+      expect(cmd.argv).toEqual(["npm", "exec", "--", "xo", "--reporter", "json"]);
+    }
+  });
+});
+
+describe("Playwright e2e lane", () => {
+  it("is available and resolves to `playwright test` when detected", () => {
+    const cmd = resolveE2e(det({ playwright: true }));
+    expect(cmd.unavailable).toBeFalsy();
+    if (!cmd.unavailable) expect(cmd.argv).toEqual(["npm", "exec", "--", "playwright", "test"]);
+    expect(laneAvailability(det({ playwright: true })).e2e).toBe(true);
+  });
+  it("prefers an explicit e2e script", () => {
+    const cmd = resolveE2e(det({ playwright: true, scripts: { e2e: "playwright test" } }));
+    if (!cmd.unavailable) expect(cmd.argv).toEqual(["npm", "run", "e2e"]);
+  });
+  it("is unavailable without Playwright", () => {
+    expect(resolveE2e(det()).unavailable).toBe(true);
+    expect(laneAvailability(det()).e2e).toBe(false);
+  });
+  it("stays unavailable even with an e2e script when Playwright is absent", () => {
+    const d = det({ scripts: { e2e: "cypress run" }, scriptNames: ["e2e"] });
+    expect(resolveE2e(d).unavailable).toBe(true);
+    expect(laneAvailability(d).e2e).toBe(false);
   });
 });
 
